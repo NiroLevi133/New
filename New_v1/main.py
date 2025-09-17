@@ -5,6 +5,10 @@ from logic import load_excel, compute_best_scores, top_matches, NAME_COL, PHONE_
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import random, time
+from fastapi import Request
+import requests
+
+
 
 # יצירת אפליקציה FastAPI
 app = FastAPI()
@@ -86,3 +90,9 @@ async def merge_files(guests_file: UploadFile = File(...), contacts_file: Upload
         })
 
     return {"results": results}
+
+if __name__ == "__main__":
+    import os, uvicorn
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
+
