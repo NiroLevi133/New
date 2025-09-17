@@ -59,6 +59,30 @@ def verify_code(phone: str, code: str):
         return {"status": "success"}
     return {"status": "failed"}
 
+# הוסף ל-main.py שלך:
+
+@app.post("/log-user")
+async def log_user(user_data: dict):
+    # שמירה בגוגל שיטס
+    # קוד לחיבור לגוגל שיטס API
+    return {"status": "success"}
+
+@app.post("/upgrade-user") 
+async def upgrade_user(user_data: dict):
+    # עדכון משתמש לפרימיום בגוגל שיטס
+    return {"status": "success"}
+
+@app.get("/check-payment-status/{phone}")
+async def check_payment_status(phone: str):
+    # בדיקה בגוגל שיטס אם המשתמש שילם
+    # החזר: {"is_premium": True/False}
+    return {"is_premium": False}
+
+@app.post("/update-match-count")
+async def update_match_count(match_data: dict):
+    # עדכון מספר התאמות בגוגל שיטס
+    return {"status": "success"}
+
 @app.post("/merge-files")
 async def merge_files(guests_file: UploadFile = File(...), contacts_file: UploadFile = File(...)):
     # קריאת הקבצים לתוך BytesIO

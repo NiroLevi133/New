@@ -33,48 +33,101 @@ const ChatunoTech = () => {
   const startAuth = () => showScreen('authScreen');
 
   // --- פונקציות אימות ---
-  const sendCode = () => {
-    console.log('sendCode called with:', phoneValue); // Debug
+  const sendCode = async () => {
+    console.log('sendCode called with:', phoneValue);
     
     if (!phoneValue || phoneValue.length < 10) {
       showMessage('אנא הזן מספר טלפון תקין', 'error');
       return;
     }
 
-    showMessage('📱 קוד נשלח בהצלחה!', 'success');
-    setShowCodeInput(true);
-    setCurrentUser((prev) => ({ ...prev, phone: phoneValue }));
+    try {
+      showMessage('📱 שולח קוד...', 'success');
+      
+      const response = await fetch('https://new-569016630628.europe-west1.run.app/send-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ phone: phoneValue })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        showMessage('📱 קוד נשלח בהצלחה לוואטסאפ!', 'success');
+        setShowCodeInput(true);
+        setCurrentUser((prev) => ({ ...prev, phone: phoneValue }));
+        
+        // Debug - אפשר להסיר בפרודקשן
+        console.log('Sent code:', data.code);
+      } else {
+        throw new Error('שגיאה בשליחת הקוד');
+      }
+    } catch (error) {
+      console.error('Send code error:', error);
+      showMessage('❌ שגיאה בשליחת הקוד. נסה שוב.', 'error');
+    }
   };
 
-  const verifyCode = () => {
-    console.log('verifyCode called with:', codeValue); // Debug
+  const verifyCode = async () => {
+    console.log('verifyCode called with:', codeValue);
     
     if (!codeValue || codeValue.length !== 4) {
       showMessage('אנא הזן קוד בן 4 ספרות', 'error');
       return;
     }
 
-    const usedGuests = Math.floor(Math.random() * 25);
-    setCurrentUser((prev) => ({ ...prev, usedGuests }));
+    try {
+      showMessage('🔐 מאמת קוד...', 'success');
+      
+      const response = await fetch('https://new-569016630628.europe-west1.run.app/verify-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          phone: phoneValue, 
+          code: codeValue 
+        })
+      });
 
-    // שליחה לDB - לא חוסמת
-    logUserToDatabase(phoneValue).catch(err => console.log('DB log error:', err));
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+          // שמירה בגוגל שיטס
+          await logUserToGoogleSheets(phoneValue);
+          
+          // עדכון משתמש
+          setCurrentUser((prev) => ({ 
+            ...prev, 
+            usedGuests: data.used_guests || 0,
+            isPro: data.is_premium || false
+          }));
 
-    showMessage('✅ אומת בהצלחה!', 'success');
-
-    setTimeout(() => {
-      if (usedGuests >= 30 && !currentUser.isPro) {
-        showMessage(
-          `השתמשת בכל המוזמנים החינמיים (${usedGuests}/30). זמן לשדרג!`,
-          'warning'
-        );
-        setTimeout(() => setCurrentScreen('paymentScreen'), 2000);
+          showMessage('✅ אומת בהצלחה!', 'success');
+          
+          setTimeout(() => {
+            const usedGuests = data.used_guests || 0;
+            if (usedGuests >= 30 && !data.is_premium) {
+              showMessage(`השתמשת בכל המוזמנים החינמיים (${usedGuests}/30). זמן לשדרג!`, 'warning');
+              setTimeout(() => setCurrentScreen('paymentScreen'), 2000);
+            } else {
+              const remaining = 30 - usedGuests;
+              showMessage(`נותרו לך ${remaining} מוזמנים חינמיים`, 'success');
+              setTimeout(() => setCurrentScreen('uploadScreen'), 2000);
+            }
+          }, 1000);
+        } else {
+          showMessage('❌ קוד שגוי. נסה שוב.', 'error');
+        }
       } else {
-        const remaining = 30 - usedGuests;
-        showMessage(`נותרו לך ${remaining} מוזמנים חינמיים`, 'success');
-        setTimeout(() => setCurrentScreen('uploadScreen'), 2000);
+        throw new Error('שגיאה באימות הקוד');
       }
-    }, 1000);
+    } catch (error) {
+      console.error('Verify code error:', error);
+      showMessage('❌ שגיאה באימות הקוד. נסה שוב.', 'error');
+    }
   };
 
   // --- פונקציות עיבוד קבצים ---
@@ -387,11 +440,48 @@ const ChatunoTech = () => {
     const message = `שלום! אני רוצה לשדרג לגרסה המלאה (39 ש״ח)
 📱 מספר טלפון: ${currentUser.phone}
 📊 כמות מוזמנים: ${matchingResults.length}
+🔍 ID בקשה: ${Date.now()}
     
 אנא שלח לי קישור לביט לתשלום. תודה!`;
     
     const whatsappURL = `https://wa.me/972508794079?text=${encodeURIComponent(message)}`;
     window.open(whatsappURL, '_blank');
+    
+    // התחל polling לבדוק אם המשתמש שילם
+    checkPaymentStatus();
+  };
+
+  const checkPaymentStatus = () => {
+    showMessage('🔄 בודק סטטוס תשלום...', 'success');
+    
+    const checkInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`https://new-569016630628.europe-west1.run.app/check-payment-status/${currentUser.phone}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          
+          if (data.is_premium) {
+            clearInterval(checkInterval);
+            setCurrentUser((prev) => ({ ...prev, isPro: true }));
+            showMessage('🎉 תשלום הושלם בהצלחה! אתה עכשיו Pro!', 'success');
+            setTimeout(() => showScreen('matchingScreen'), 2000);
+          }
+        }
+      } catch (error) {
+        console.error('Error checking payment status:', error);
+      }
+    }, 5000); // בדיקה כל 5 שניות
+
+    // הפסק אחרי 5 דקות
+    setTimeout(() => {
+      clearInterval(checkInterval);
+    }, 300000);
   };
 
   const continueFree = () => {
