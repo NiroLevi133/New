@@ -63,14 +63,14 @@ const ChatunoTech = () => {
     showMessage('✅ אומת בהצלחה!', 'success');
 
     setTimeout(() => {
-      if (usedGuests >= 20 && !currentUser.isPro) {
+      if (usedGuests >= 30 && !currentUser.isPro) {
         showMessage(
-          `השתמשת בכל המוזמנים החינמיים (${usedGuests}/20). זמן לשדרג!`,
+          `השתמשת בכל המוזמנים החינמיים (${usedGuests}/30). זמן לשדרג!`,
           'warning'
         );
         setTimeout(() => setCurrentScreen('paymentScreen'), 2000);
       } else {
-        const remaining = 20 - usedGuests;
+        const remaining = 30 - usedGuests;
         showMessage(`נותרו לך ${remaining} מוזמנים חינמיים`, 'success');
         setTimeout(() => setCurrentScreen('uploadScreen'), 2000);
       }
@@ -380,18 +380,28 @@ const ChatunoTech = () => {
   };
 
   // --- תשלום ---
-  const payWithBit = () => {
-    showMessage('מפנה לתשלום Bit...', 'success');
-    setTimeout(() => {
-      setCurrentUser((prev) => ({ ...prev, isPro: true }));
-      showMessage('🎉 תשלום הושלם בהצלחה! אתה עכשיו Pro!', 'success');
-      setTimeout(() => showScreen('uploadScreen'), 2000);
-    }, 2000);
+  const payWithWhatsApp = () => {
+    showMessage('מפנה לוואטסאפ לתשלום...', 'success');
+    
+    // הודעה עם פרטי המשתמש
+    const message = `שלום! אני רוצה לשדרג לגרסה המלאה (39 ש״ח)
+📱 מספר טלפון: ${currentUser.phone}
+📊 כמות מוזמנים: ${matchingResults.length}
+    
+אנא שלח לי קישור לביט לתשלום. תודה!`;
+    
+    const whatsappURL = `https://wa.me/972508794079?text=${encodeURIComponent(message)}`;
+    window.open(whatsappURL, '_blank');
   };
 
   const continueFree = () => {
-    showMessage('אוקיי, נמשיך עם המגבלה החינמית', 'warning');
-    setTimeout(() => showScreen('uploadScreen'), 1500);
+    showMessage('אוקיי, נמשיך עם המגבלה החינמית (30 מוזמנים)', 'warning');
+    
+    // הראה רק 30 ראשונים
+    const limitedResults = matchingResults.slice(0, 30);
+    setMatchingResults(limitedResults);
+    
+    setTimeout(() => showScreen('matchingScreen'), 1500);
   };
 
   // --- הודעות ---
@@ -986,13 +996,70 @@ const ChatunoTech = () => {
           {currentScreen === 'paymentScreen' && (
             <div style={{ textAlign: 'center' }}>
               <h2>🚀 שדרג לגרסה מלאה</h2>
-              <p>גרסה מלאה ללא הגבלות + תכונות נוספות</p>
-              <button className="btn btn-primary" onClick={payWithBit}>
-                💳 שלם ב־Bit
+              <div style={{ 
+                background: 'linear-gradient(135deg, #667eea, #764ba2)', 
+                color: 'white', 
+                padding: '30px', 
+                borderRadius: '20px', 
+                marginBottom: '30px' 
+              }}>
+                <h3 style={{ margin: '0 0 15px 0', fontSize: '1.5rem' }}>💎 גרסה מלאה - רק ₪39</h3>
+                <div style={{ fontSize: '1.1rem', marginBottom: '20px' }}>
+                  ✅ ללא הגבלת מוזמנים<br/>
+                  ✅ התאמות מושלמות<br/>
+                  ✅ ייצוא לאקסל<br/>
+                  ✅ תמיכה מלאה
+                </div>
+                <div style={{ 
+                  background: 'rgba(255,255,255,0.2)', 
+                  padding: '15px', 
+                  borderRadius: '10px',
+                  marginTop: '15px'
+                }}>
+                  <strong style={{ fontSize: '1.2rem' }}>
+                    יש לך {matchingResults.length} מוזמנים
+                  </strong>
+                  <br/>
+                  <small>מגבלה חינמית: 30 מוזמנים</small>
+                </div>
+              </div>
+              
+              <button 
+                className="btn btn-primary" 
+                onClick={payWithWhatsApp}
+                style={{ 
+                  width: '100%', 
+                  padding: '20px',
+                  fontSize: '1.3rem',
+                  marginBottom: '15px',
+                  background: 'linear-gradient(135deg, #25D366, #128C7E)'
+                }}
+              >
+                💬 שלם דרך וואטסאפ - ₪39
               </button>
-              <button className="btn btn-secondary" onClick={continueFree}>
-                📝 המשך חינם (עד 20 מוזמנים)
+              
+              <button 
+                className="btn btn-secondary" 
+                onClick={continueFree}
+                style={{ width: '100%', padding: '15px' }}
+              >
+                📝 המשך חינם (30 מוזמנים ראשונים)
               </button>
+              
+              <div style={{ 
+                marginTop: '20px', 
+                fontSize: '0.9rem', 
+                color: '#666',
+                background: '#f8f9fa',
+                padding: '15px',
+                borderRadius: '10px'
+              }}>
+                💡 <strong>איך זה עובד?</strong><br/>
+                1. לחץ על כפתור וואטסאפ<br/>
+                2. נשלח לך קישור לביט<br/>
+                3. שלם ₪39 חד-פעמי<br/>
+                4. קבל גישה מיידית לכל המוזמנים!
+              </div>
             </div>
           )}
 
