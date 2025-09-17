@@ -1,5 +1,10 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pandas
 openpyxl
 requests
+python-multipart
+rapidfuzz
+unidecode
+gspread
+google-auth

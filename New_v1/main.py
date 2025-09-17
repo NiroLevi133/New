@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import random, time
 from fastapi import Request
 import requests
+import os
+import uvicorn
 
 
 
@@ -27,7 +29,7 @@ GREEN_API_TOKEN = "8b416b11358045f3bad816ffaf433454989a08cfb4d448ebae"
 GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
 
 
-app = FastAPI()
+
 
 @app.post("/webhook")
 async def webhook_listener(request: Request):
@@ -39,27 +41,33 @@ async def webhook_listener(request: Request):
 pending_codes = {}
 
 @app.post("/send-code")
-def send_code(phone: str):
+async def send_code(data: dict):  # השתמש ב-dict במקום phone: str
     """שליחת קוד אימות למספר WhatsApp"""
+    phone = data.get("phone")  # הוסף שורה זו
     code = str(random.randint(1000, 9999))
     pending_codes[phone] = code
 
     payload = {
-        "chatId": f"{phone}@c.us",  # מספר בפורמט בינלאומי, לדוגמה 972501234567
+        "chatId": f"{phone}@c.us",
         "message": f"🔐 קוד האימות שלך הוא: {code}"
     }
 
     res = requests.post(GREEN_API_URL, json=payload)
-    return {"status": "sent", "code": code, "response": res.json()}
+    return {"status": "success", "code": code, "response": res.json()}
 
 @app.post("/verify-code")
-def verify_code(phone: str, code: str):
+async def verify_code(data: dict):  # השתמש ב-dict במקום phone: str, code: str
     """בדיקה אם הקוד נכון"""
+    phone = data.get("phone")  # הוסף שורה זו
+    code = data.get("code")   # הוסף שורה זו
+    
     if pending_codes.get(phone) == code:
-        return {"status": "success"}
+        return {
+            "status": "success",
+            "used_guests": 0,  # הוסף את הנתונים הנדרשים
+            "is_premium": False
+        }
     return {"status": "failed"}
-
-# הוסף ל-main.py שלך:
 
 @app.post("/log-user")
 async def log_user(user_data: dict):
@@ -116,7 +124,9 @@ async def merge_files(guests_file: UploadFile = File(...), contacts_file: Upload
     return {"results": results}
 
 if __name__ == "__main__":
-    import os, uvicorn
-    port = int(os.environ.get("PORT", 8080))
+    # קבל את הפורט ממשתנה הסביבה (Cloud Run דורש את זה)
+    port = int(os.environ.get("PORT", 8000))
+    
+    # הרץ את השרת על כל הכתובות (0.0.0.0) ועל הפורט הנכון
     uvicorn.run("main:app", host="0.0.0.0", port=port)
 
