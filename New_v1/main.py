@@ -23,6 +23,14 @@ GREEN_API_TOKEN = "8b416b11358045f3bad816ffaf433454989a08cfb4d448ebae"
 GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
 
 
+app = FastAPI()
+
+@app.post("/webhook")
+async def webhook_listener(request: Request):
+    data = await request.json()
+    print("📩 התקבל Webhook:", data)
+    return {"status": "ok"}
+
 # אחסון זמני בקודים (אפשר להחליף ב-DB אמיתי)
 pending_codes = {}
 
