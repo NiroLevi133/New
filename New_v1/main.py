@@ -20,7 +20,8 @@ app.add_middleware(
 # פרטי Green API
 GREEN_API_ID = "7105248361"
 GREEN_API_TOKEN = "8b416b11358045f3bad816ffaf433454989a08cfb4d448ebae"
-GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}
+GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
+
 
 # אחסון זמני בקודים (אפשר להחליף ב-DB אמיתי)
 pending_codes = {}

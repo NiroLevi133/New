@@ -1,7 +1,12 @@
-import AuthScreen from "./AuthScreen";
+import React from 'react';
+import ChatunoTech from './ChatunoTech';
 
 function App() {
-  return <AuthScreen />;
+  return (
+    <div className="App">
+      <ChatunoTech />
+    </div>
+  );
 }
 
 export default App;
