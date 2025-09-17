@@ -1,0 +1,46 @@
+.guest-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.guest-card h3 {
+  margin-bottom: 8px;
+  color: #111827;
+}
+
+.candidates-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.candidate-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f3f4f6;
+  margin: 6px 0;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.select-btn {
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #4f46e5;
+  color: white;
+  transition: 0.2s ease;
+}
+
+.select-btn:hover {
+  background: #4338ca;
+}
+
+.select-btn.selected {
+  background: #16a34a; /* ירוק */
+}

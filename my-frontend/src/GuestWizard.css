@@ -1,0 +1,387 @@
+/* GuestWizard.css */
+
+.wizard-container {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 20px;
+  direction: rtl;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Progress Bar */
+.progress-section {
+  margin-bottom: 25px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 12px;
+  background: #e1e5e9;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 6px;
+  transition: width 0.5s ease;
+  box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+}
+
+.progress-text {
+  text-align: center;
+  font-size: 1rem;
+  color: #333;
+  font-weight: 600;
+  margin-top: 5px;
+}
+
+/* פרופיל מוזמן */
+.guest-profile {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 20px;
+  padding: 20px 30px;
+  margin-bottom: 25px;
+  border: none;
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+  width: 100%;
+  animation: slideIn 0.5s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.guest-name {
+  font-size: 1.4rem;
+  color: white;
+  margin-bottom: 15px;
+  font-weight: 700;
+  text-align: center;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.guest-details {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.detail-item {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  padding: 10px 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  flex: 1;
+  min-width: 120px;
+  text-align: center;
+}
+
+.detail-label {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.8rem;
+  margin-bottom: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.detail-value {
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+/* אפשרויות איש קשר */
+.contact-options {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #e1e5e9;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.options-title {
+  font-size: 1.1rem;
+  color: #333;
+  margin-bottom: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* חיפוש */
+.search-section {
+  margin-bottom: 15px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 10px;
+  border: 1px solid #e1e5e9;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+/* הוספת טלפון ידני */
+.manual-phone-section {
+  margin-bottom: 15px;
+  padding: 15px;
+  background: #fff3cd;
+  border-radius: 10px;
+  border: 1px solid #ffeaa7;
+}
+
+.manual-phone-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  direction: ltr;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.option-group {
+  margin-bottom: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* רדיו אופציות */
+.radio-option {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid #e1e5e9;
+  border-radius: 6px;
+  margin-bottom: 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #fafafa;
+  font-size: 0.85rem;
+}
+
+.radio-option:hover {
+  border-color: #667eea;
+  background: #f0f4ff;
+  transform: translateX(2px);
+}
+
+.radio-option.selected {
+  border-color: #28a745;
+  background: #f0fff4;
+  box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.1);
+}
+
+.radio-input {
+  margin-left: 10px;
+  transform: scale(1.1);
+}
+
+.radio-label {
+  flex-grow: 1;
+  font-weight: 500;
+  color: #333;
+}
+
+.contact-name {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.9rem;
+}
+
+.contact-phone {
+  font-size: 0.8rem;
+  color: #666;
+  margin-right: 5px;
+  direction: ltr;
+}
+
+.contact-reason {
+  font-size: 0.75rem;
+  color: #888;
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.match-score {
+  color: #667eea;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+/* כפתורים */
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 600;
+  text-transform: none;
+  min-width: 100px;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.btn-small {
+  padding: 8px 16px;
+  min-width: 80px;
+  font-size: 0.85rem;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  background: #f8f9fa;
+  color: #666;
+  border: 2px solid #e1e5e9;
+}
+
+.btn-secondary:hover {
+  background: #e9ecef;
+  border-color: #adb5bd;
+}
+
+/* כפתורי ניווט */
+.navigation-buttons {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 30px;
+  gap: 15px;
+}
+
+.navigation-buttons .btn {
+  flex: 1;
+  max-width: 200px;
+}
+
+/* הודעות מצב */
+.status-message {
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  font-weight: 500;
+  text-align: center;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.status-success {
+  background: #d4edda;
+  color: #155724;
+  border: 2px solid #c3e6cb;
+}
+
+.status-error {
+  background: #f8d7da;
+  color: #721c24;
+  border: 2px solid #f5c6cb;
+}
+
+/* הודעת השלמה */
+.completion-message {
+  text-align: center;
+  padding: 50px 20px;
+  background: white;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+}
+
+.completion-message h2 {
+  color: #28a745;
+  font-size: 2rem;
+  margin-bottom: 15px;
+}
+
+.completion-message p {
+  color: #666;
+  font-size: 1.1rem;
+}
+
+/* מובייל */
+@media (max-width: 768px) {
+  .wizard-container {
+    padding: 10px;
+  }
+  
+  .guest-details {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .detail-item {
+    min-width: auto;
+  }
+  
+  .navigation-buttons {
+    flex-direction: column;
+  }
+  
+  .navigation-buttons .btn {
+    max-width: none;
+  }
+  
+  .guest-name {
+    font-size: 1.2rem;
+  }
+  
+  .progress-text {
+    font-size: 0.9rem;
+  }
+}
