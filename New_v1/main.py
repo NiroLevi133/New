@@ -17,13 +17,11 @@ try:
     
     # בדיקה אם קובץ logic קיים
     try:
-        print("📦 Trying to import logic...")
         from logic import load_excel, compute_best_scores, top_matches, NAME_COL, PHONE_COL
         print("✅ Logic module imported successfully")
         LOGIC_AVAILABLE = True
-    except ImportError as e:
-        print(f"⚠️ Logic module not found: {e}")
-        print("⚠️ Will continue without logic module")
+    except Exception as e:
+        print(f"❌ Logic import failed: {e}")
         LOGIC_AVAILABLE = False
     
     print("🏗️ Creating FastAPI app...")
