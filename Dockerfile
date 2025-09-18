@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 WORKDIR /app
-COPY New_v1/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY New_v1/ .
 EXPOSE 8080
