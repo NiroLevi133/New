@@ -12,6 +12,7 @@ try:
     import random, time
     import requests
     import os
+    import re 
     import uvicorn
     print("✅ All basic libraries imported successfully")
     
@@ -58,6 +59,8 @@ try:
         print("❤️ Health check called")
         return {"status": "ok", "logic_available": LOGIC_AVAILABLE}
     
+    import re  # הוסף את זה בראש הקובץ אם אין
+
     @app.post("/webhook")
     async def webhook_listener(request: Request):
         print("📩 Webhook received")
@@ -68,13 +71,13 @@ try:
         except Exception as e:
             print(f"❌ Webhook error: {e}")
             return {"status": "error", "message": str(e)}
-    
+
     def format_phone_for_whatsapp(phone: str) -> str:
-    """המרה לפורמט WhatsApp: 050X -> 972-50X"""
-    digits = re.sub(r'\D', '', phone)  # רק ספרות
-    if digits.startswith('0'):
-        digits = '972' + digits[1:]  # 050 -> 97250
-    return digits
+        """המרה לפורמט WhatsApp: 050X -> 972-50X"""
+        digits = re.sub(r'\D', '', phone)  # רק ספרות
+        if digits.startswith('0'):
+            digits = '972' + digits[1:]  # 050 -> 97250
+        return digits
 
     @app.post("/send-code")
     async def send_code(data: dict):
@@ -92,7 +95,7 @@ try:
             "chatId": f"{formatted_phone}@c.us",  # השתמש בפורמט
             "message": f"🔐 קוד האימות שלך הוא: {code}"
         }
-    
+
         try:
             print("📤 Sending WhatsApp message...")
             res = requests.post(GREEN_API_URL, json=payload, timeout=10)
