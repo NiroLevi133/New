@@ -1,30 +1,32 @@
 # logic.py – מערכת התאמת מוזמנים מתקדמת
 """שדרוג אלגוריתם התאמת השמות (גרסה מאוחדת 2025‑08‑03)
 ----------------------------------------------------------------
-* אינטגרציה מלאה עם Google Sheets לניהול הרשאות
-* מנגנון גיבוי אוטומטי לקובץ Excel מקומי
-* חיזוק נורמליזציה (הסרת '|', '/', '()' ועוד)
-* התעלמות ממילים סופיות לא רלוונטיות (״מילואים״, "נייד", "בית", "עבודה" …)
-* fuzzy‑eq על־ידי Levenshtein ≥ 90 %
-* בונוס 100 % כאשר core‑tokens זהים (שם‑פרטי + משפחה)
-* length_penalty מוחל רק אם יש +2 טוקנים פער
-* טיפול מתקדם בזיהוי עמודות שם פרטי+משפחה
-* תמיכה ב-CSV ו-XLSX עם זיהוי אוטומטי
+* זיהוי אוטומטי וגמיש של עמודות
+* תמיכה בפורמטים שונים של קבצי Excel/CSV
+* אלגוריתם התאמה מתקדם עם fuzzy matching
+* נורמליזציה משופרת של שמות
+* מערכת הרשאות עם Google Sheets וגיבוי מקומי
+* טיפול בשגיאות encoding ופורמטים שונים
 """
 
 from __future__ import annotations
 
 import os, re, logging
 from io import BytesIO
-from typing import List, Set
+from typing import List, Set, Dict, Optional
 
 import pandas as pd
 import unidecode
 from rapidfuzz import fuzz, distance
 
 # Google Sheets via ADC (Cloud Run Service Account)
-import google.auth
-import gspread
+try:
+    import google.auth
+    import gspread
+    GOOGLE_AVAILABLE = True
+except ImportError:
+    GOOGLE_AVAILABLE = False
+    logging.warning("Google auth not available - using local files only")
 
 # ───────── קבועים ─────────
 NAME_COL          = "שם מלא"
@@ -61,7 +63,7 @@ SUFFIX_TOKENS: Set[str] = {
     "בית", "עבודה", "עסקי", "אישי", "משרד"
 }
 
-# ───────── עזרים ─────────
+# ───────── עזרים בסיסיים ─────────
 def only_digits(s: str) -> str:
     """מחזיר רק ספרות מהמחרוזת"""
     return re.sub(r"\D+", "", s or "")
@@ -120,6 +122,174 @@ def format_phone(ph: str) -> str:
         d = "0" + d[3:]
     return f"{d[:3]}-{d[3:]}" if len(d) == 10 else d
 
+# ───────── זיהוי אוטומטי של עמודות ─────────
+def detect_column_type(col_name: str, sample_data: pd.Series) -> str:
+    """זיהוי אוטומטי של סוג העמודה לפי שם ותוכן"""
+    col_lower = str(col_name).lower().strip()
+    
+    # בדיקת תוכן העמודה
+    sample_str = sample_data.astype(str).str.lower()
+    
+    # עמודת טלפון
+    phone_keywords = ['טלפון', 'פלאפון', 'נייד', 'סלולר', 'phone', 'mobile', 'cell', 'מספר']
+    has_phone_keyword = any(keyword in col_lower for keyword in phone_keywords)
+    has_digits = sample_str.str.contains(r'\d{9,}').any()
+    
+    if has_phone_keyword or has_digits:
+        return 'phone'
+    
+    # עמודת שם
+    name_keywords = ['שם', 'name', 'מוזמן', 'guest', 'אורח', 'משתתף']
+    has_name_keyword = any(keyword in col_lower for keyword in name_keywords)
+    has_hebrew_letters = sample_str.str.contains(r'[א-ת]').any()
+    has_english_letters = sample_str.str.contains(r'[a-z]').any()
+    
+    if has_name_keyword or has_hebrew_letters or has_english_letters:
+        return 'name'
+    
+    # עמודת כמות
+    count_keywords = ['כמות', 'מספר', 'קאונט', 'count', 'qty', 'quantity', 'אורחים', 'מוזמנים']
+    has_count_keyword = any(keyword in col_lower for keyword in count_keywords)
+    is_numeric = pd.to_numeric(sample_data, errors='coerce').notna().sum() > len(sample_data) * 0.7
+    
+    if has_count_keyword or is_numeric:
+        return 'count'
+    
+    # עמודת צד
+    side_keywords = ['צד', 'side', 'חתן', 'כלה', 'groom', 'bride']
+    if any(keyword in col_lower for keyword in side_keywords):
+        return 'side'
+    
+    # עמודת קבוצה
+    group_keywords = ['קבוצה', 'group', 'סוג', 'type', 'קטגוריה', 'category']
+    if any(keyword in col_lower for keyword in group_keywords):
+        return 'group'
+    
+    return 'other'
+
+def smart_column_mapping(df: pd.DataFrame) -> Dict[str, str]:
+    """מיפוי חכם של עמודות לפי תוכן ושם"""
+    mapping = {}
+    
+    for col in df.columns:
+        col_type = detect_column_type(col, df[col].head(10))
+        mapping[col] = col_type
+    
+    return mapping
+
+# ───────── טעינת קבצים גמישה ─────────
+def load_excel_flexible(file) -> pd.DataFrame:
+    """טעינת קובץ עם זיהוי אוטומטי של עמודות וטיפול בשגיאות encoding"""
+    try:
+        # ניסיון קריאה כ-CSV קודם
+        if hasattr(file, "name") and str(file.name).lower().endswith(".csv"):
+            df = pd.read_csv(file, encoding='utf-8')
+        else:
+            # ניסיון עם encodings שונים
+            try:
+                df = pd.read_excel(file)
+            except:
+                # ניסיון כ-CSV עם encoding עברי
+                file.seek(0)
+                df = pd.read_csv(file, encoding='hebrew')
+    except Exception as e:
+        # ניסיון אחרון - קריאה ללא encoding
+        try:
+            file.seek(0)
+            df = pd.read_csv(file, encoding='utf-8-sig')
+        except:
+            raise Exception(f"לא ניתן לקרוא את הקובץ: {str(e)}")
+    
+    # ניקוי שמות עמודות
+    df.columns = [str(col).strip() for col in df.columns]
+    
+    # הסרת שורות ריקות
+    df = df.dropna(how='all')
+    
+    if len(df) == 0:
+        raise Exception("הקובץ ריק או לא מכיל נתונים")
+    
+    # זיהוי אוטומטי של עמודות
+    column_mapping = smart_column_mapping(df)
+    
+    # יצירת עמודות סטנדרטיות
+    standard_df = pd.DataFrame()
+    
+    # מציאת עמודת שם (עדיפות לעמודה הראשונה שמכילה שמות)
+    name_cols = [col for col, type_val in column_mapping.items() if type_val == 'name']
+    if name_cols:
+        # בחירת העמודה עם הכי הרבה תוכן
+        best_name_col = max(name_cols, key=lambda col: df[col].astype(str).str.len().mean())
+        standard_df[NAME_COL] = df[best_name_col].astype(str).str.strip()
+    else:
+        # אם לא נמצאה עמודת שם, ניקח את העמודה הראשונה
+        standard_df[NAME_COL] = df.iloc[:, 0].astype(str).str.strip()
+    
+    # מציאת עמודת טלפון
+    phone_cols = [col for col, type_val in column_mapping.items() if type_val == 'phone']
+    if phone_cols:
+        best_phone_col = phone_cols[0]
+        standard_df[PHONE_COL] = df[best_phone_col].astype(str).str.strip()
+    else:
+        standard_df[PHONE_COL] = ""
+    
+    # מציאת עמודת כמות
+    count_cols = [col for col, type_val in column_mapping.items() if type_val == 'count']
+    if count_cols:
+        count_col = count_cols[0]
+        # נסיון להמיר למספר
+        count_series = pd.to_numeric(df[count_col], errors='coerce').fillna(1)
+        standard_df[COUNT_COL] = count_series.astype(int)
+    else:
+        standard_df[COUNT_COL] = 1
+    
+    # עמודות אופציונליות
+    side_cols = [col for col, type_val in column_mapping.items() if type_val == 'side']
+    if side_cols:
+        standard_df[SIDE_COL] = df[side_cols[0]].astype(str).str.strip()
+    else:
+        standard_df[SIDE_COL] = ""
+    
+    group_cols = [col for col, type_val in column_mapping.items() if type_val == 'group']
+    if group_cols:
+        standard_df[GROUP_COL] = df[group_cols[0]].astype(str).str.strip()
+    else:
+        standard_df[GROUP_COL] = ""
+    
+    # נירמול שמות
+    standard_df["norm_name"] = standard_df[NAME_COL].map(normalize)
+    
+    # סינון רשומות ריקות
+    standard_df = standard_df[standard_df["norm_name"].str.strip() != ""]
+    
+    if len(standard_df) == 0:
+        raise Exception("לא נמצאו רשומות תקינות עם שמות")
+    
+    return standard_df
+
+def create_contacts_template() -> pd.DataFrame:
+    """יוצר קובץ דוגמה לאנשי קשר"""
+    template = pd.DataFrame({
+        'שם מלא': [
+            'ישראל ישראלי',
+            'שרה כהן',
+            'דוד לevi',
+            'רחל אברהם'
+        ],
+        'מספר פלאפון': [
+            '0501234567',
+            '0529876543',
+            '0521111111',
+            '0502222222'
+        ]
+    })
+    return template
+
+# הפונקציה הישנה נשארת לתאימות לאחור
+def load_excel(file) -> pd.DataFrame:
+    """טוען CSV/XLSX עם זיהוי אוטומטי, מנרמל ומוודא עמודות חובה."""
+    return load_excel_flexible(file)
+
 # ───────── מערכת הרשאות: Google Sheets + קובץ גיבוי ─────────
 def _pick_worksheet(sh):
     """מאתר לשונית לפי שם (לא רגיש לרישיות/רווחים). אם אין/לא נמצא – הראשונה."""
@@ -142,6 +312,10 @@ def _find_phone_col(header: list[str]) -> int:
 
 def _load_allowed_from_sheets() -> set[str] | None:
     """טוען סט טלפונים מורשים מ-Sheets דרך ADC. מחזיר None אם אין/שגיאה (כדי לאפשר גיבוי)."""
+    if not GOOGLE_AVAILABLE:
+        logging.info("Google Sheets not available - skipping")
+        return None
+        
     sheet_id = os.getenv(SPREADSHEET_ID_ENV)
     if not sheet_id:
         return None
@@ -238,101 +412,6 @@ def reason_for(g_norm: str, c_norm: str, score: int) -> str:
     if score >= AUTO_SELECT_TH:
         return "התאמה גבוהה"
     return ""
-
-# ───────── זיהוי עמודות שם/טלפון בקובצי קלט ─────────
-def _best_text_col(candidates: List[str], df: pd.DataFrame) -> str:
-    """בחירת עמודת טקסט איכותית מתוך מועמדים."""
-    def score(col):
-        s = df[col].astype(str).fillna("")
-        return ((s.str.strip() != "").sum(), s.str.contains(r"[A-Za-zא-ת]").mean(), s.str.len().mean())
-    return max(candidates, key=score)
-
-def _resolve_full_name_series(df: pd.DataFrame) -> pd.Series:
-    """
-    מאחד שם פרטי+משפחה / מזהה 'שם מלא' / דמויות שם – ומחזיר Series.
-    אלגוריתם מתקדם לזיהוי וחיבור עמודות שם.
-    """
-    cols = list(df.columns)
-    low = {c: str(c).strip().lower() for c in cols}
-    
-    # זיהוי ישיר של עמודת שם מלא
-    direct = {"שם מלא", "full name", "fullname", "guest name", "שם המוזמן"}
-    for c in cols:
-        if low[c] in direct:
-            return df[c].fillna("").astype(str).str.strip()
-    
-    # חיבור שם פרטי + משפחה
-    first = [c for c in cols if "פרטי" in low[c] or low[c] in {"שם", "first", "firstname"}]
-    last  = [c for c in cols if "משפחה" in low[c] or low[c] in {"last", "lastname", "surname"}]
-    if first and last:
-        f, l = _best_text_col(first, df), _best_text_col(last, df)
-        return (df[f].fillna("").astype(str).str.strip() + " " +
-                df[l].fillna("").astype(str).str.strip()).str.replace(r"\s+", " ", regex=True).str.strip()
-    
-    # חיפוש עמודות דמויות שם
-    name_like = [c for c in cols if any(k in low[c] for k in ["שם", "name", "guest", "מוזמן"])]
-    if name_like:
-        c = _best_text_col(name_like, df)
-        return df[c].fillna("").astype(str).str.strip()
-    
-    return pd.Series([""] * len(df))
-
-# ───────── טעינת קלט וייצוא ─────────
-def load_excel(file) -> pd.DataFrame:
-    """טוען CSV/XLSX עם זיהוי אוטומטי, מנרמל ומוודא עמודות חובה."""
-    # 1) קריאה עם זיהוי פורמט אוטומטי
-    if hasattr(file, "name") and str(file.name).lower().endswith(".csv"):
-        df = pd.read_csv(file).rename(columns=lambda c: str(c).strip())
-    else:
-        df = pd.read_excel(file).rename(columns=lambda c: str(c).strip())
-
-    # 2) עמודת טלפון
-    if PHONE_COL not in df.columns:
-        hints = ["טלפון", "פלא", "נייד", "cell", "mobile", "phone", "מספר"]
-        alt = [c for c in df.columns if any(h in str(c).lower() for h in hints)]
-        if alt:
-            df.rename(columns={alt[0]: PHONE_COL}, inplace=True)
-        else:
-            df[PHONE_COL] = ""
-    df[PHONE_COL] = (
-        df[PHONE_COL]
-        .fillna("")
-        .astype(str)
-        .str.replace(r"\.0$", "", regex=True)
-        .str.strip()
-    )
-
-    # 3) עמודת שם מלא (עם אלגוריתם מתקדם)
-    if NAME_COL in df.columns:
-        df[NAME_COL] = df[NAME_COL].fillna("").astype(str).str.strip()
-    else:
-        df[NAME_COL] = _resolve_full_name_series(df)
-
-    # 4) עמודת כמות מוזמנים
-    count_hints = [
-        "כמות", "מספר מוזמנים", "מס' מוזמנים", "מוזמנים", "מספר אורחים", "אורחים",
-        "guest count", "guests", "guest", "count", "qty", "quantity", "amount",
-    ]
-    if COUNT_COL not in df.columns:
-        alt_count = [c for c in df.columns if any(h in str(c).lower() for h in count_hints)]
-        if alt_count:
-            df.rename(columns={alt_count[0]: COUNT_COL}, inplace=True)
-        else:
-            df[COUNT_COL] = 1
-    counts_raw = df[COUNT_COL].astype(str)
-    counts_num = pd.to_numeric(counts_raw.str.extract(r"(\d+)")[0], errors="coerce")
-    df[COUNT_COL] = counts_num.fillna(1).astype(int)
-
-    # 5) עמודות צד וקבוצה
-    for col in (SIDE_COL, GROUP_COL):
-        if col not in df.columns:
-            df[col] = ""
-        else:
-            df[col] = df[col].fillna("").astype(str).str.strip()
-
-    # 6) שם מנורמל להתאמות
-    df["norm_name"] = df[NAME_COL].map(normalize)
-    return df
 
 def to_buf(df: pd.DataFrame) -> BytesIO:
     """ייצוא ל-Excel: מסיר עמודות פנימיות ומשאיר טלפון בסוף."""

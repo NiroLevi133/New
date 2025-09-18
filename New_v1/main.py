@@ -12,17 +12,19 @@ try:
     import random, time
     import requests
     import os
-    import re 
     import uvicorn
+    import re
     print("✅ All basic libraries imported successfully")
     
     # בדיקה אם קובץ logic קיים
     try:
-        from logic import load_excel, compute_best_scores, top_matches, NAME_COL, PHONE_COL
+        print("📦 Trying to import logic...")
+        from logic import load_excel_flexible, compute_best_scores, top_matches, NAME_COL, PHONE_COL, create_contacts_template
         print("✅ Logic module imported successfully")
         LOGIC_AVAILABLE = True
-    except Exception as e:
-        print(f"❌ Logic import failed: {e}")
+    except ImportError as e:
+        print(f"⚠️ Logic module not found: {e}")
+        print("⚠️ Will continue without logic module")
         LOGIC_AVAILABLE = False
     
     print("🏗️ Creating FastAPI app...")
@@ -59,8 +61,6 @@ try:
         print("❤️ Health check called")
         return {"status": "ok", "logic_available": LOGIC_AVAILABLE}
     
-    import re  # הוסף את זה בראש הקובץ אם אין
-
     @app.post("/webhook")
     async def webhook_listener(request: Request):
         print("📩 Webhook received")
@@ -78,7 +78,7 @@ try:
         if digits.startswith('0'):
             digits = '972' + digits[1:]  # 050 -> 97250
         return digits
-
+    
     @app.post("/send-code")
     async def send_code(data: dict):
         phone = data.get("phone")
@@ -107,25 +107,68 @@ try:
     
     @app.post("/verify-code")
     async def verify_code(data: dict):
-        print(f"🔐 Verify code called for: {data.get('phone', 'unknown')}")
         phone = data.get("phone")
         code = data.get("code")
         
         if not phone or not code:
-            print("❌ Phone or code missing")
             raise HTTPException(status_code=400, detail="Phone and code are required")
         
         if pending_codes.get(phone) == code:
             pending_codes.pop(phone, None)
-            print("✅ Code verified successfully")
+            
+            # שמירה ב-Google Sheets
+            await log_user_to_sheets(phone)
+            
             return {
                 "status": "success",
                 "used_guests": 0,
                 "is_premium": False
             }
         
-        print("❌ Code verification failed")
         return {"status": "failed"}
+
+    async def log_user_to_sheets(phone: str):
+        """שמירת משתמש חדש ב-Google Sheets"""
+        try:
+            if not LOGIC_AVAILABLE:
+                return
+                
+            # חיבור ל-Google Sheets
+            from logic import google, gspread
+            creds, _ = google.auth.default()
+            gc = gspread.authorize(creds)
+            
+            # פתח את הגיליון (תחליף עם ה-ID שלך)
+            sheet_id = "1kMilBqKmldMBuvHtOdJsEGfo6Kb-J0W5rEXAhmG57b0"
+            sh = gc.open_by_key(sheet_id)
+            ws = sh.worksheet("users1")
+            
+            # בדוק אם המשתמש כבר קיים
+            phone_col = ws.col_values(4)  # עמודה C (phone)
+            if phone in phone_col:
+                print(f"User {phone} already exists")
+                return
+            
+            # מצא את השורה הבאה
+            next_row = len(ws.get_all_values()) + 1
+            next_id = next_row - 1  # ID מתחיל מ-1
+            
+            # הוסף משתמש חדש
+            current_time = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            ws.update(f"A{next_row}:F{next_row}", [[
+                next_id,           # A: id
+                phone,            # B: full_name (נשים טלפון זמנית)
+                phone,            # C: phone  
+                current_time,     # D: join_date
+                0,                # E: matches_count
+                False             # F: is_premium
+            ]])
+            
+            print(f"✅ User {phone} logged to Google Sheets with ID {next_id}")
+            
+        except Exception as e:
+            print(f"❌ Failed to log user to sheets: {e}")
     
     @app.post("/log-user")
     async def log_user(user_data: dict):
@@ -160,21 +203,30 @@ try:
             guests_bytes = await guests_file.read()
             contacts_bytes = await contacts_file.read()
             print(f"✅ Files read - Guests: {len(guests_bytes)} bytes, Contacts: {len(contacts_bytes)} bytes")
-    
-            print("🔄 Processing files with logic module...")
-            guests_df = load_excel(BytesIO(guests_bytes))
-            contacts_df = load_excel(BytesIO(contacts_bytes))
+
+            print("🔄 Processing files with improved logic...")
+            
+            # שימוש בפונקציה החדשה הגמישה
+            guests_df = load_excel_flexible(BytesIO(guests_bytes))
+            contacts_df = load_excel_flexible(BytesIO(contacts_bytes))
+            
             print(f"✅ DataFrames created - Guests: {len(guests_df)}, Contacts: {len(contacts_df)}")
-    
-            guests_df["best_score"] = compute_best_scores(guests_df, contacts_df)
-            print("✅ Best scores computed")
-    
+
+            # מציאת ההתאמות
             results = []
             for _, guest in guests_df.iterrows():
-                candidates = top_matches(guest["norm_name"], contacts_df)
+                guest_name = guest[NAME_COL]
+                guest_norm = guest["norm_name"]
+                
+                # מציאת מועמדים
+                candidates = top_matches(guest_norm, contacts_df)
+                
+                # חישוב ציון הטוב ביותר
+                best_score = candidates["score"].max() if len(candidates) > 0 else 0
+                
                 results.append({
-                    "guest": guest[NAME_COL],
-                    "best_score": int(guest["best_score"]),
+                    "guest": guest_name,
+                    "best_score": int(best_score),
                     "candidates": [
                         {
                             "name": row[NAME_COL],
@@ -191,7 +243,33 @@ try:
         
         except Exception as e:
             print(f"❌ Error in merge_files: {e}")
-            raise HTTPException(status_code=500, detail=f"Error processing files: {str(e)}")
+            import traceback
+            print(f"📍 Full traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"שגיאה בעיבוד הקבצים: {str(e)}")
+
+    # הוסף גם endpoint חדש ליצירת קובץ דוגמה
+    @app.get("/download-contacts-template")
+    async def download_contacts_template():
+        """הורדת קובץ דוגמה לאנשי קשר"""
+        try:
+            if not LOGIC_AVAILABLE:
+                raise HTTPException(status_code=500, detail="Logic module not available")
+                
+            template_df = create_contacts_template()
+            
+            # יצירת buffer
+            from logic import to_buf
+            excel_buffer = to_buf(template_df)
+            
+            from fastapi.responses import StreamingResponse
+            
+            return StreamingResponse(
+                BytesIO(excel_buffer.getvalue()),
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": "attachment; filename=contacts_template.xlsx"}
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"שגיאה ביצירת הקובץ: {str(e)}")
     
     print("✅ All routes defined successfully")
     
