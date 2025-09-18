@@ -124,9 +124,8 @@ async def merge_files(guests_file: UploadFile = File(...), contacts_file: Upload
     return {"results": results}
 
 if __name__ == "__main__":
-    # קבל את הפורט ממשתנה הסביבה (Cloud Run דורש את זה)
+    import uvicorn
+    # Cloud Run מעביר את הפורט דרך משתנה הסביבה
     port = int(os.environ.get("PORT", 8000))
-    
-    # הרץ את השרת על כל הכתובות (0.0.0.0) ועל הפורט הנכון
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
