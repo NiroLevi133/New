@@ -1,9 +1,8 @@
 FROM python:3.11-slim
 
 WORKDIR /app
-COPY requirements.txt .
+COPY New_v1/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
+COPY New_v1/ .
 
-# אל תגדיר EXPOSE או ENV PORT - תן לCloud Run לנהל את זה
 CMD ["python", "main.py"]
