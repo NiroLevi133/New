@@ -1,11 +1,7 @@
 FROM python:3.11-slim
 WORKDIR /app
-
-# Debug - ראה מה יש בשורש
-RUN ls -la /
-COPY . /app
-RUN echo "=== ROOT FILES ===" && ls -la
-RUN echo "=== LOOKING FOR NEW_V1 ===" && find . -name "New_v1" -type d
-RUN echo "=== PYTHON FILES ===" && find . -name "*.py"
-
-CMD ["echo", "debug complete"]
+COPY New_v1/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY New_v1/ .
+EXPOSE 8080
+CMD ["python", "main.py"]
