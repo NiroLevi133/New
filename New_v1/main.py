@@ -1,158 +1,199 @@
-from fastapi import FastAPI, UploadFile, File
-from io import BytesIO
-import pandas as pd
-from logic import load_excel, compute_best_scores, top_matches, NAME_COL, PHONE_COL
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-import random, time
-from fastapi import Request
-import requests
-import os
-import uvicorn
+print("🚀 Starting application...")
 
-# יצירת אפליקציה FastAPI
-app = FastAPI()
-
-# ✨ הוספת CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # אפשר לפתוח לכולם או לשים ["http://localhost:5173"]
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# פרטי Green API
-GREEN_API_ID = "7105248361"
-GREEN_API_TOKEN = "8b416b11358045f3bad816ffaf433454989a08cfb4d448ebae"
-GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
-
-# אחסון זמני בקודים (אפשר להחליף ב-DB אמיתי)
-pending_codes = {}
-
-@app.get("/")
-async def root():
-    """Health check endpoint"""
-    return {"status": "healthy", "message": "Guest Matcher API is running"}
-
-@app.get("/health")
-async def health():
-    """Health check endpoint"""
-    return {"status": "ok"}
-
-@app.post("/webhook")
-async def webhook_listener(request: Request):
-    data = await request.json()
-    print("📩 התקבל Webhook:", data)
-    return {"status": "ok"}
-
-@app.post("/send-code")
-async def send_code(data: dict):
-    """שליחת קוד אימות למספר WhatsApp"""
-    phone = data.get("phone")
-    if not phone:
-        raise HTTPException(status_code=400, detail="Phone number is required")
+try:
+    print("📦 Importing FastAPI...")
+    from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+    print("✅ FastAPI imported successfully")
     
-    code = str(random.randint(1000, 9999))
-    pending_codes[phone] = code
-
-    payload = {
-        "chatId": f"{phone}@c.us",
-        "message": f"🔐 קוד האימות שלך הוא: {code}"
-    }
-
+    print("📦 Importing other libraries...")
+    from io import BytesIO
+    import pandas as pd
+    from fastapi.middleware.cors import CORSMiddleware
+    import random, time
+    import requests
+    import os
+    import uvicorn
+    print("✅ All basic libraries imported successfully")
+    
+    # בדיקה אם קובץ logic קיים
     try:
-        res = requests.post(GREEN_API_URL, json=payload, timeout=10)
-        return {"status": "success", "code": code, "response": res.json()}
-    except Exception as e:
-        print(f"Error sending WhatsApp message: {e}")
-        return {"status": "success", "code": code, "message": "Code generated (WhatsApp sending failed)"}
-
-@app.post("/verify-code")
-async def verify_code(data: dict):
-    """בדיקה אם הקוד נכון"""
-    phone = data.get("phone")
-    code = data.get("code")
+        print("📦 Trying to import logic...")
+        from logic import load_excel, compute_best_scores, top_matches, NAME_COL, PHONE_COL
+        print("✅ Logic module imported successfully")
+        LOGIC_AVAILABLE = True
+    except ImportError as e:
+        print(f"⚠️ Logic module not found: {e}")
+        print("⚠️ Will continue without logic module")
+        LOGIC_AVAILABLE = False
     
-    if not phone or not code:
-        raise HTTPException(status_code=400, detail="Phone and code are required")
+    print("🏗️ Creating FastAPI app...")
+    app = FastAPI()
+    print("✅ FastAPI app created")
     
-    if pending_codes.get(phone) == code:
-        # נקה את הקוד אחרי שימוש
-        pending_codes.pop(phone, None)
-        return {
-            "status": "success",
-            "used_guests": 0,
-            "is_premium": False
+    print("🔧 Adding CORS middleware...")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    print("✅ CORS middleware added")
+    
+    # פרטי Green API
+    GREEN_API_ID = "7105248361"
+    GREEN_API_TOKEN = "8b416b11358045f3bad816ffaf433454989a08cfb4d448ebae"
+    GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
+    
+    # אחסון זמני בקודים
+    pending_codes = {}
+    
+    print("📋 Defining routes...")
+    
+    @app.get("/")
+    async def root():
+        print("🏠 Root endpoint called")
+        return {"status": "healthy", "message": "Guest Matcher API is running", "logic_available": LOGIC_AVAILABLE}
+    
+    @app.get("/health")
+    async def health():
+        print("❤️ Health check called")
+        return {"status": "ok", "logic_available": LOGIC_AVAILABLE}
+    
+    @app.post("/webhook")
+    async def webhook_listener(request: Request):
+        print("📩 Webhook received")
+        try:
+            data = await request.json()
+            print(f"📩 Webhook data: {data}")
+            return {"status": "ok"}
+        except Exception as e:
+            print(f"❌ Webhook error: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    @app.post("/send-code")
+    async def send_code(data: dict):
+        print(f"📱 Send code called for: {data.get('phone', 'unknown')}")
+        phone = data.get("phone")
+        if not phone:
+            print("❌ Phone number missing")
+            raise HTTPException(status_code=400, detail="Phone number is required")
+        
+        code = str(random.randint(1000, 9999))
+        pending_codes[phone] = code
+        print(f"✅ Code generated: {code}")
+    
+        payload = {
+            "chatId": f"{phone}@c.us",
+            "message": f"🔐 קוד האימות שלך הוא: {code}"
         }
-    return {"status": "failed"}
-
-@app.post("/log-user")
-async def log_user(user_data: dict):
-    """שמירה בגוגל שיטס"""
-    # כאן תוסיף את הקוד לחיבור לגוגל שיטס API
-    print(f"Logging user: {user_data}")
-    return {"status": "success"}
-
-@app.post("/upgrade-user") 
-async def upgrade_user(user_data: dict):
-    """עדכון משתמש לפרימיום בגוגל שיטס"""
-    print(f"Upgrading user: {user_data}")
-    return {"status": "success"}
-
-@app.get("/check-payment-status/{phone}")
-async def check_payment_status(phone: str):
-    """בדיקה בגוגל שיטס אם המשתמש שילם"""
-    # כאן תוסיף את הלוגיקה לבדיקה בגוגל שיטס
-    print(f"Checking payment status for: {phone}")
-    return {"is_premium": False}
-
-@app.post("/update-match-count")
-async def update_match_count(match_data: dict):
-    """עדכון מספר התאמות בגוגל שיטס"""
-    print(f"Updating match count: {match_data}")
-    return {"status": "success"}
-
-@app.post("/merge-files")
-async def merge_files(guests_file: UploadFile = File(...), contacts_file: UploadFile = File(...)):
-    """מיזוג קבצי מוזמנים ואנשי קשר"""
-    try:
-        # קריאת הקבצים לתוך BytesIO
-        guests_bytes = await guests_file.read()
-        contacts_bytes = await contacts_file.read()
-
-        # טעינת הקבצים עם הפונקציות שלך
-        guests_df = load_excel(BytesIO(guests_bytes))
-        contacts_df = load_excel(BytesIO(contacts_bytes))
-
-        # מחשב את הציון הטוב ביותר לכל מוזמן
-        guests_df["best_score"] = compute_best_scores(guests_df, contacts_df)
-
-        results = []
-        for _, guest in guests_df.iterrows():
-            candidates = top_matches(guest["norm_name"], contacts_df)
-            results.append({
-                "guest": guest[NAME_COL],
-                "best_score": int(guest["best_score"]),
-                "candidates": [
-                    {
-                        "name": row[NAME_COL],
-                        "phone": row[PHONE_COL],
-                        "score": int(row["score"]),
-                        "reason": row.get("reason", "")
-                    }
-                    for _, row in candidates.iterrows()
-                ]
-            })
-
-        return {"results": results}
     
-    except Exception as e:
-        print(f"Error in merge_files: {e}")
-        raise HTTPException(status_code=500, detail=f"Error processing files: {str(e)}")
+        try:
+            print("📤 Sending WhatsApp message...")
+            res = requests.post(GREEN_API_URL, json=payload, timeout=10)
+            print(f"✅ WhatsApp response: {res.status_code}")
+            return {"status": "success", "code": code, "response": res.json()}
+        except Exception as e:
+            print(f"⚠️ WhatsApp error: {e}")
+            return {"status": "success", "code": code, "message": "Code generated (WhatsApp sending failed)"}
+    
+    @app.post("/verify-code")
+    async def verify_code(data: dict):
+        print(f"🔐 Verify code called for: {data.get('phone', 'unknown')}")
+        phone = data.get("phone")
+        code = data.get("code")
+        
+        if not phone or not code:
+            print("❌ Phone or code missing")
+            raise HTTPException(status_code=400, detail="Phone and code are required")
+        
+        if pending_codes.get(phone) == code:
+            pending_codes.pop(phone, None)
+            print("✅ Code verified successfully")
+            return {
+                "status": "success",
+                "used_guests": 0,
+                "is_premium": False
+            }
+        
+        print("❌ Code verification failed")
+        return {"status": "failed"}
+    
+    @app.post("/log-user")
+    async def log_user(user_data: dict):
+        print(f"📝 Logging user: {user_data}")
+        return {"status": "success"}
+    
+    @app.post("/upgrade-user") 
+    async def upgrade_user(user_data: dict):
+        print(f"⬆️ Upgrading user: {user_data}")
+        return {"status": "success"}
+    
+    @app.get("/check-payment-status/{phone}")
+    async def check_payment_status(phone: str):
+        print(f"💳 Checking payment for: {phone}")
+        return {"is_premium": False}
+    
+    @app.post("/update-match-count")
+    async def update_match_count(match_data: dict):
+        print(f"📊 Updating match count: {match_data}")
+        return {"status": "success"}
+    
+    @app.post("/merge-files")
+    async def merge_files(guests_file: UploadFile = File(...), contacts_file: UploadFile = File(...)):
+        print("🔀 Merge files endpoint called")
+        
+        if not LOGIC_AVAILABLE:
+            print("❌ Logic module not available")
+            raise HTTPException(status_code=500, detail="Logic module not available")
+        
+        try:
+            print("📖 Reading uploaded files...")
+            guests_bytes = await guests_file.read()
+            contacts_bytes = await contacts_file.read()
+            print(f"✅ Files read - Guests: {len(guests_bytes)} bytes, Contacts: {len(contacts_bytes)} bytes")
+    
+            print("🔄 Processing files with logic module...")
+            guests_df = load_excel(BytesIO(guests_bytes))
+            contacts_df = load_excel(BytesIO(contacts_bytes))
+            print(f"✅ DataFrames created - Guests: {len(guests_df)}, Contacts: {len(contacts_df)}")
+    
+            guests_df["best_score"] = compute_best_scores(guests_df, contacts_df)
+            print("✅ Best scores computed")
+    
+            results = []
+            for _, guest in guests_df.iterrows():
+                candidates = top_matches(guest["norm_name"], contacts_df)
+                results.append({
+                    "guest": guest[NAME_COL],
+                    "best_score": int(guest["best_score"]),
+                    "candidates": [
+                        {
+                            "name": row[NAME_COL],
+                            "phone": row[PHONE_COL],
+                            "score": int(row["score"]),
+                            "reason": row.get("reason", "")
+                        }
+                        for _, row in candidates.iterrows()
+                    ]
+                })
+            
+            print(f"✅ Processing complete - {len(results)} results")
+            return {"results": results}
+        
+        except Exception as e:
+            print(f"❌ Error in merge_files: {e}")
+            raise HTTPException(status_code=500, detail=f"Error processing files: {str(e)}")
+    
+    print("✅ All routes defined successfully")
+    
+    if __name__ == "__main__":
+        port = int(os.environ.get("PORT", 8080))
+        print(f"🚀 Starting server on port {port}")
+        uvicorn.run(app, host="0.0.0.0", port=port)
 
-if __name__ == "__main__":
-    # Cloud Run מעביר את הפורט דרך משתנה הסביבה
-    port = int(os.environ.get("PORT", 8080))  # שונה ל-8080 כברירת מחדל
-    print(f"Starting server on port {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+except Exception as e:
+    print(f"💥 CRITICAL ERROR during startup: {e}")
+    import traceback
+    print(f"📍 Full traceback: {traceback.format_exc()}")
+    exit(1)
