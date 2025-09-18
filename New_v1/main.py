@@ -130,45 +130,61 @@ try:
     async def log_user_to_sheets(phone: str):
         """שמירת משתמש חדש ב-Google Sheets"""
         try:
+            print(f"Attempting to log user {phone} to Google Sheets")
+            
             if not LOGIC_AVAILABLE:
+                print("Logic not available, skipping Google Sheets logging")
                 return
                 
             # חיבור ל-Google Sheets
-            from logic import google, gspread
+            import google.auth
+            import gspread
+            
             creds, _ = google.auth.default()
             gc = gspread.authorize(creds)
             
-            # פתח את הגיליון (תחליף עם ה-ID שלך)
-            sheet_id = "1kMilBqKmldMBuvHtOdJsEGfo6Kb-J0W5rEXAhmG57b0"
+            # פתח את הגיליון
+            sheet_id = os.getenv("GOOGLE_SHEET_ID", "1kMilBqKmldMBuvHtOdJsEGfo6Kb-J0W5rEXAhmG57b0")
+            sheet_name = os.getenv("GOOGLE_SHEET_NAME", "users1")
+            
+            print(f"Opening sheet {sheet_id}, worksheet {sheet_name}")
+            
             sh = gc.open_by_key(sheet_id)
-            ws = sh.worksheet("users1")
+            ws = sh.worksheet(sheet_name)
             
             # בדוק אם המשתמש כבר קיים
-            phone_col = ws.col_values(4)  # עמודה C (phone)
-            if phone in phone_col:
-                print(f"User {phone} already exists")
-                return
+            try:
+                phone_values = ws.col_values(3)  # עמודה C (phone)
+                if phone in phone_values:
+                    print(f"User {phone} already exists")
+                    return
+            except:
+                phone_values = []
             
             # מצא את השורה הבאה
-            next_row = len(ws.get_all_values()) + 1
-            next_id = next_row - 1  # ID מתחיל מ-1
+            all_values = ws.get_all_values()
+            next_row = len(all_values) + 1
+            next_id = len([row for row in all_values[1:] if row and row[0]]) + 1  # ספירה נכונה של IDs
             
             # הוסף משתמש חדש
-            current_time = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+            import datetime
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            ws.update(f"A{next_row}:F{next_row}", [[
-                next_id,           # A: id
-                phone,            # B: full_name (נשים טלפון זמנית)
+            ws.update_range(f"A{next_row}:F{next_row}", [[
+                str(next_id),     # A: id
+                phone,            # B: full_name 
                 phone,            # C: phone  
                 current_time,     # D: join_date
-                0,                # E: matches_count
-                False             # F: is_premium
+                "0",              # E: matches_count
+                "FALSE"           # F: is_premium
             ]])
             
-            print(f"✅ User {phone} logged to Google Sheets with ID {next_id}")
+            print(f"User {phone} logged to Google Sheets with ID {next_id} at row {next_row}")
             
         except Exception as e:
-            print(f"❌ Failed to log user to sheets: {e}")
+            print(f"Failed to log user to sheets: {e}")
+            import traceback
+            print(f"Full traceback: {traceback.format_exc()}")
     
     @app.post("/log-user")
     async def log_user(user_data: dict):

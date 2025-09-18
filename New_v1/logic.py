@@ -181,89 +181,145 @@ def smart_column_mapping(df: pd.DataFrame) -> Dict[str, str]:
 def load_excel_flexible(file) -> pd.DataFrame:
     """טעינת קובץ עם זיהוי אוטומטי של עמודות וטיפול בשגיאות encoding"""
     try:
+        print(f"📁 Attempting to read file: {getattr(file, 'filename', 'unknown')}")
+        
         # ניסיון קריאה כ-CSV קודם
-        if hasattr(file, "name") and str(file.name).lower().endswith(".csv"):
+        if hasattr(file, "filename") and str(file.filename).lower().endswith(".csv"):
+            print("🔍 Detected CSV file, attempting CSV read...")
             df = pd.read_csv(file, encoding='utf-8')
+            print(f"✅ CSV read successful, shape: {df.shape}")
         else:
-            # ניסיון עם encodings שונים
+            # ניסיון עם Excel קודם
             try:
+                print("🔍 Attempting Excel read...")
                 df = pd.read_excel(file)
-            except:
-                # ניסיון כ-CSV עם encoding עברי
+                print(f"✅ Excel read successful, shape: {df.shape}")
+            except Exception as excel_error:
+                print(f"❌ Excel read failed: {excel_error}")
+                print("🔍 Trying as CSV with Hebrew encoding...")
                 file.seek(0)
                 df = pd.read_csv(file, encoding='hebrew')
+                print(f"✅ CSV with Hebrew encoding successful, shape: {df.shape}")
     except Exception as e:
-        # ניסיון אחרון - קריאה ללא encoding
+        print(f"❌ Primary read attempts failed: {e}")
+        # ניסיון אחרון - קריאה עם UTF-8-SIG
         try:
+            print("🔍 Final attempt: CSV with UTF-8-SIG...")
             file.seek(0)
             df = pd.read_csv(file, encoding='utf-8-sig')
-        except:
+            print(f"✅ UTF-8-SIG read successful, shape: {df.shape}")
+        except Exception as final_error:
+            print(f"💥 All read attempts failed: {final_error}")
             raise Exception(f"לא ניתן לקרוא את הקובץ: {str(e)}")
+    
+    print(f"📊 Raw file data - Shape: {df.shape}")
+    print(f"📋 Original columns: {list(df.columns)}")
+    if not df.empty:
+        print(f"🔍 First 3 rows preview:")
+        print(df.head(3).to_string())
     
     # ניקוי שמות עמודות
     df.columns = [str(col).strip() for col in df.columns]
+    print(f"📋 Cleaned columns: {list(df.columns)}")
     
     # הסרת שורות ריקות
+    original_len = len(df)
     df = df.dropna(how='all')
+    removed_rows = original_len - len(df)
+    if removed_rows > 0:
+        print(f"🧹 Removed {removed_rows} empty rows")
     
     if len(df) == 0:
+        print("❌ DataFrame is empty after cleaning")
         raise Exception("הקובץ ריק או לא מכיל נתונים")
     
+    print(f"📊 Data after cleaning - Shape: {df.shape}")
+    
     # זיהוי אוטומטי של עמודות
+    print("🔍 Starting automatic column detection...")
     column_mapping = smart_column_mapping(df)
+    print(f"🗺️ Column mapping: {column_mapping}")
     
     # יצירת עמודות סטנדרטיות
     standard_df = pd.DataFrame()
     
     # מציאת עמודת שם (עדיפות לעמודה הראשונה שמכילה שמות)
     name_cols = [col for col, type_val in column_mapping.items() if type_val == 'name']
+    print(f"👤 Name columns found: {name_cols}")
+    
     if name_cols:
         # בחירת העמודה עם הכי הרבה תוכן
         best_name_col = max(name_cols, key=lambda col: df[col].astype(str).str.len().mean())
+        print(f"👤 Selected name column: {best_name_col}")
         standard_df[NAME_COL] = df[best_name_col].astype(str).str.strip()
     else:
         # אם לא נמצאה עמודת שם, ניקח את העמודה הראשונה
-        standard_df[NAME_COL] = df.iloc[:, 0].astype(str).str.strip()
+        print("👤 No name column detected, using first column")
+        if len(df.columns) > 0:
+            standard_df[NAME_COL] = df.iloc[:, 0].astype(str).str.strip()
+        else:
+            raise Exception("לא נמצאה עמודת שם מתאימה")
     
     # מציאת עמודת טלפון
     phone_cols = [col for col, type_val in column_mapping.items() if type_val == 'phone']
+    print(f"📱 Phone columns found: {phone_cols}")
+    
     if phone_cols:
         best_phone_col = phone_cols[0]
+        print(f"📱 Selected phone column: {best_phone_col}")
         standard_df[PHONE_COL] = df[best_phone_col].astype(str).str.strip()
     else:
+        print("📱 No phone column detected, setting empty")
         standard_df[PHONE_COL] = ""
     
     # מציאת עמודת כמות
     count_cols = [col for col, type_val in column_mapping.items() if type_val == 'count']
+    print(f"🔢 Count columns found: {count_cols}")
+    
     if count_cols:
         count_col = count_cols[0]
+        print(f"🔢 Selected count column: {count_col}")
         # נסיון להמיר למספר
         count_series = pd.to_numeric(df[count_col], errors='coerce').fillna(1)
         standard_df[COUNT_COL] = count_series.astype(int)
     else:
+        print("🔢 No count column detected, setting default 1")
         standard_df[COUNT_COL] = 1
     
     # עמודות אופציונליות
     side_cols = [col for col, type_val in column_mapping.items() if type_val == 'side']
     if side_cols:
+        print(f"🏷️ Side column found: {side_cols[0]}")
         standard_df[SIDE_COL] = df[side_cols[0]].astype(str).str.strip()
     else:
         standard_df[SIDE_COL] = ""
     
     group_cols = [col for col, type_val in column_mapping.items() if type_val == 'group']
     if group_cols:
+        print(f"👥 Group column found: {group_cols[0]}")
         standard_df[GROUP_COL] = df[group_cols[0]].astype(str).str.strip()
     else:
         standard_df[GROUP_COL] = ""
     
     # נירמול שמות
+    print("🔤 Normalizing names...")
     standard_df["norm_name"] = standard_df[NAME_COL].map(normalize)
     
     # סינון רשומות ריקות
+    original_count = len(standard_df)
     standard_df = standard_df[standard_df["norm_name"].str.strip() != ""]
+    filtered_count = original_count - len(standard_df)
+    
+    if filtered_count > 0:
+        print(f"🧹 Filtered out {filtered_count} records with empty names")
     
     if len(standard_df) == 0:
+        print("❌ No valid records remain after filtering")
         raise Exception("לא נמצאו רשומות תקינות עם שמות")
+    
+    print(f"✅ Processing complete! Final shape: {standard_df.shape}")
+    print(f"📊 Sample of processed data:")
+    print(standard_df[[NAME_COL, PHONE_COL]].head(3).to_string())
     
     return standard_df
 
