@@ -1,19 +1,20 @@
-# Base image
+# השתמש ב-Python 3.11
 FROM python:3.11-slim
 
-# Set working directory
+# הגדר את ספריית העבודה
 WORKDIR /app
 
-# Install dependencies
+# העתק את קובץ requirements.txt
 COPY requirements.txt .
+
+# התקן dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# העתק את כל הקבצים
 COPY . .
 
-# Expose FastAPI port
-EXPOSE 8000
+# חשוף את הפורט 8080 (Google Cloud Run default)
+EXPOSE 8080
 
-# Run FastAPI with uvicorn
-CMD exec uvicorn main:app --host 0.0.0.0 --port $PORT
-
+# הרץ את האפליקציה
+CMD ["python", "main.py"]

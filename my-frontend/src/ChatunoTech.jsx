@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 
 const ChatunoTech = () => {
+  // Constants
+  const API_BASE_URL = 'https://new-569016630628.europe-west1.run.app';
+  
   // State
   const [currentScreen, setCurrentScreen] = useState('landingPage');
   const [currentUser, setCurrentUser] = useState({
@@ -21,6 +24,7 @@ const ChatunoTech = () => {
   const [selectedContacts, setSelectedContacts] = useState({});
   const [message, setMessage] = useState({ text: '', type: '' });
   const [showContactsGuide, setShowContactsGuide] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Auth
   const [phoneValue, setPhoneValue] = useState('');
@@ -42,9 +46,10 @@ const ChatunoTech = () => {
     }
 
     try {
+      setIsLoading(true);
       showMessage('📱 שולח קוד...', 'success');
       
-      const response = await fetch('https://new-569016630628.europe-west1.run.app/send-code', {
+      const response = await fetch(`${API_BASE_URL}/send-code`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -54,18 +59,21 @@ const ChatunoTech = () => {
 
       if (response.ok) {
         const data = await response.json();
-        showMessage('📱 קוד נשלח בהצלחה לוואטסאפ!', 'success');
+        showMessage('📱 קוד נשלח בהצלחה לווטסאפ!', 'success');
         setShowCodeInput(true);
         setCurrentUser((prev) => ({ ...prev, phone: phoneValue }));
         
         // Debug - אפשר להסיר בפרודקשן
         console.log('Sent code:', data.code);
       } else {
-        throw new Error('שגיאה בשליחת הקוד');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'שגיאה בשליחת הקוד');
       }
     } catch (error) {
       console.error('Send code error:', error);
-      showMessage('❌ שגיאה בשליחת הקוד. נסה שוב.', 'error');
+      showMessage(`❌ שגיאה בשליחת הקוד: ${error.message}`, 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -78,9 +86,10 @@ const ChatunoTech = () => {
     }
 
     try {
+      setIsLoading(true);
       showMessage('🔐 מאמת קוד...', 'success');
       
-      const response = await fetch('https://new-569016630628.europe-west1.run.app/verify-code', {
+      const response = await fetch(`${API_BASE_URL}/verify-code`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -122,131 +131,42 @@ const ChatunoTech = () => {
           showMessage('❌ קוד שגוי. נסה שוב.', 'error');
         }
       } else {
-        throw new Error('שגיאה באימות הקוד');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'שגיאה באימות הקוד');
       }
     } catch (error) {
       console.error('Verify code error:', error);
-      showMessage('❌ שגיאה באימות הקוד. נסה שוב.', 'error');
+      showMessage(`❌ שגיאה באימות הקוד: ${error.message}`, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const logUserToGoogleSheets = async (phone) => {
+    try {
+      await fetch(`${API_BASE_URL}/log-user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ phone })
+      });
+    } catch (error) {
+      console.error('Error logging user:', error);
     }
   };
 
   // --- פונקציות עיבוד קבצים ---
-  const parseExcelContent = async (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          // Simple Excel/CSV parsing
-          const content = e.target.result;
-          const lines = content.split('\n').filter(line => line.trim());
-          
-          if (lines.length < 2) {
-            throw new Error('הקובץ לא מכיל מספיק נתונים');
-          }
-          
-          // Parse headers - handle both comma and tab separators
-          let separator = ',';
-          if (lines[0].includes('\t')) separator = '\t';
-          
-          const headers = lines[0].split(separator).map(h => h.trim().replace(/"/g, ''));
-          
-          const data = lines.slice(1).map((line, index) => {
-            const values = line.split(separator).map(v => v.trim().replace(/"/g, ''));
-            const obj = { _rowIndex: index + 2 };
-            
-            headers.forEach((header, idx) => {
-              obj[header] = values[idx] || '';
-            });
-            
-            return obj;
-          }).filter(obj => Object.values(obj).some(val => val && val.toString().trim()));
-          
-          resolve(data);
-        } catch (error) {
-          reject(error);
-        }
-      };
-      reader.onerror = () => reject(new Error('שגיאה בקריאת הקובץ'));
-      
-      if (file.name.toLowerCase().includes('.xlsx') || file.name.toLowerCase().includes('.xls')) {
-        reader.readAsText(file, 'UTF-8'); // Simple text reading for Excel files
-      } else {
-        reader.readAsText(file, 'UTF-8');
-      }
-    });
-  };
+  const handleFileUpload = async (event, type) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
-  const parseCSVContent = (content, isContacts = false) => {
-    try {
-      const lines = content.split('\n').filter(line => line.trim());
-      if (lines.length < 2) {
-        throw new Error('הקובץ לא מכיל מספיק נתונים');
-      }
-      
-      // Detect separator
-      let separator = ',';
-      if (lines[0].includes('\t')) separator = '\t';
-      
-      const headers = lines[0].split(separator).map(h => h.trim().replace(/"/g, ''));
-      
-      const data = lines.slice(1).map((line, index) => {
-        const values = line.split(separator).map(v => v.trim().replace(/"/g, ''));
-        const obj = { _rowIndex: index + 2 };
-        
-        headers.forEach((header, index) => {
-          obj[header] = values[index] || '';
-        });
-        
-        // נרמול השדות - מחפש בכל השמות האפשריים
-        if (isContacts) {
-          obj.normalizedName = obj.full_name || obj.Name || obj.name || obj['שם'] || obj['שם מלא'] || obj['Full Name'] || '';
-          obj.normalizedPhone = obj.phone || obj.Phone || obj['טלפון'] || obj['מספר טלפון'] || obj['Phone'] || '';
-        } else {
-          obj.normalizedName = obj.full_name || obj.Name || obj.name || obj['שם'] || obj['שם מוזמן'] || obj['שם מלא'] || obj['Full Name'] || '';
-        }
-        
-        return obj;
-      }).filter(obj => obj.normalizedName && obj.normalizedName.trim());
-      
-      return data;
-    } catch (error) {
-      throw new Error(`שגיאה בפענוח הקובץ: ${error.message}`);
-    }
-  };
-
-  const readFile = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = () => reject(new Error('שגיאה בקריאת הקובץ'));
-      reader.readAsText(file, 'UTF-8');
-    });
-  };
-
-  const handleFileUpload = async (file, type) => {
     try {
       showMessage(`טוען קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'}...`, 'success');
       
-      let parsed = [];
-      const isContacts = type === 'contacts';
-      
-      if (file.name.toLowerCase().includes('.xlsx') || file.name.toLowerCase().includes('.xls')) {
-        parsed = await parseExcelContent(file);
-      } else {
-        const content = await readFile(file);
-        parsed = parseCSVContent(content, isContacts);
-      }
-      
-      // נרמול נתונים אחרי הפארסינג
-      parsed = parsed.map(item => {
-        if (isContacts) {
-          item.normalizedName = item.full_name || item.Name || item.name || item['שם'] || item['שם מלא'] || item['Full Name'] || '';
-          item.normalizedPhone = item.phone || item.Phone || item['טלפון'] || item['מספר טלפון'] || item['Phone'] || '';
-        } else {
-          item.normalizedName = item.full_name || item.Name || item.name || item['שם'] || item['שם מוזמן'] || item['שם מלא'] || item['Full Name'] || '';
-        }
-        return item;
-      }).filter(item => item.normalizedName && item.normalizedName.trim());
+      // Parse file content
+      const content = await readFileAsText(file);
+      const parsed = parseFileContent(content, type === 'contacts');
       
       if (parsed.length === 0) {
         throw new Error('לא נמצאו נתונים תקינים בקובץ');
@@ -262,181 +182,114 @@ const ChatunoTech = () => {
         [type]: file
       }));
       
-      const statusElement = document.getElementById(`${type}Status`);
-      if (statusElement) {
-        statusElement.innerHTML = `
-          <div class="status-message status-success">
-            ✅ קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'} הועלה בהצלחה!
-            <br>נמצאו ${parsed.length} רשומות תקינות
-          </div>
-        `;
-      }
-      
-      console.log(`${type} data sample:`, parsed.slice(0, 3));
-      
-      checkFilesReady();
       showMessage(`✅ קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'} נטען בהצלחה - ${parsed.length} רשומות`, 'success');
       
     } catch (error) {
       console.error(`Error uploading ${type}:`, error);
       showMessage(`שגיאה: ${error.message}`, 'error');
+    }
+  };
+
+  const readFileAsText = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = () => reject(new Error('שגיאה בקריאת הקובץ'));
+      reader.readAsText(file, 'UTF-8');
+    });
+  };
+
+  const parseFileContent = (content, isContacts = false) => {
+    try {
+      const lines = content.split('\\n').filter(line => line.trim());
+      if (lines.length < 2) {
+        throw new Error('הקובץ לא מכיל מספיק נתונים');
+      }
       
-      const statusElement = document.getElementById(`${type}Status`);
-      if (statusElement) {
-        statusElement.innerHTML = `
-          <div class="status-message status-error">
-            ❌ שגיאה בטעינת הקובץ: ${error.message}
-          </div>
-        `;
-      }
-    }
-  };
-
-  // --- העלאת קבצים ---
-  const setupFileUploads = () => {
-    useEffect(() => {
-      const guestsFile = document.getElementById('guestsFile');
-      const contactsFile = document.getElementById('contactsFile');
-
-      if (guestsFile) {
-        guestsFile.addEventListener('change', function () {
-          if (this.files[0]) {
-            handleFileUpload(this.files[0], 'guests');
-          }
+      // Detect separator
+      let separator = ',';
+      if (lines[0].includes('\\t')) separator = '\\t';
+      
+      const headers = lines[0].split(separator).map(h => h.trim().replace(/"/g, ''));
+      
+      const data = lines.slice(1).map((line, index) => {
+        const values = line.split(separator).map(v => v.trim().replace(/"/g, ''));
+        const obj = { _rowIndex: index + 2 };
+        
+        headers.forEach((header, idx) => {
+          obj[header] = values[idx] || '';
         });
-      }
-
-      if (contactsFile) {
-        contactsFile.addEventListener('change', function () {
-          if (this.files[0]) {
-            handleFileUpload(this.files[0], 'contacts');
-          }
-        });
-      }
-    }, [currentScreen]);
-  };
-
-  const checkFilesReady = () => {
-    const startBtn = document.getElementById('startMergeBtn');
-    if (uploadedFiles.guests && uploadedFiles.contacts && startBtn) {
-      startBtn.disabled = false;
-      startBtn.style.opacity = '1';
-    }
-  };
-
-  // --- אלגוריתם התאמה ---
-  const calculateSimilarity = (str1, str2) => {
-    if (!str1 || !str2) return 0;
-    
-    const s1 = str1.toLowerCase().trim();
-    const s2 = str2.toLowerCase().trim();
-    
-    if (s1 === s2) return 1.0;
-    
-    // חישוב דמיון על בסיס Levenshtein distance
-    const matrix = [];
-    const len1 = s1.length;
-    const len2 = s2.length;
-    
-    for (let i = 0; i <= len2; i++) {
-      matrix[i] = [i];
-    }
-    
-    for (let j = 0; j <= len1; j++) {
-      matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= len2; i++) {
-      for (let j = 1; j <= len1; j++) {
-        if (s2.charAt(i - 1) === s1.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1];
+        
+        // נרמול השדות
+        if (isContacts) {
+          obj.normalizedName = obj.full_name || obj.Name || obj.name || obj['שם'] || obj['שם מלא'] || obj['Full Name'] || '';
+          obj.normalizedPhone = obj.phone || obj.Phone || obj['טלפון'] || obj['מספר טלפון'] || '';
         } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1,
-            matrix[i][j - 1] + 1,
-            matrix[i - 1][j] + 1
-          );
+          obj.normalizedName = obj.full_name || obj.Name || obj.name || obj['שם'] || obj['שם מוזמן'] || obj['שם מלא'] || '';
         }
-      }
+        
+        return obj;
+      }).filter(obj => obj.normalizedName && obj.normalizedName.trim());
+      
+      return data;
+    } catch (error) {
+      throw new Error(`שגיאה בפענוח הקובץ: ${error.message}`);
     }
-    
-    const distance = matrix[len2][len1];
-    const maxLen = Math.max(len1, len2);
-    return (maxLen - distance) / maxLen;
   };
 
-  const findMatches = (guest, contacts) => {
-    const candidates = contacts.map(contact => {
-      const score = calculateSimilarity(guest.normalizedName, contact.normalizedName);
-      let reason = '';
-      
-      if (score >= 0.9) reason = 'התאמה מלאה';
-      else if (score >= 0.7) reason = 'דמיון גבוה';
-      else if (score >= 0.5) reason = 'דמיון חלקי';
-      else reason = 'דמיון נמוך';
-      
-      return {
-        name: contact.normalizedName,
-        phone: contact.normalizedPhone,
-        score: score,
-        reason: reason,
-        originalData: contact
-      };
-    });
-    
-    return candidates
-      .filter(c => c.score > 0.3)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-  };
-
-  const processMatching = () => {
-    const results = parsedData.guests.map(guest => {
-      const candidates = findMatches(guest, parsedData.contacts);
-      return {
-        name: guest.normalizedName,
-        bestScore: candidates.length > 0 ? candidates[0].score : 0,
-        candidates: candidates,
-        originalData: guest
-      };
-    });
-    
-    return results.filter(r => r.candidates.length > 0);
-  };
-
-  // --- מיזוג ---
-  const startMerge = () => {
-    if (!parsedData.guests.length || !parsedData.contacts.length) {
+  // --- מיזוג באמצעות Backend ---
+  const startMerge = async () => {
+    if (!uploadedFiles.guests || !uploadedFiles.contacts) {
       showMessage('אנא וודא שהקבצים הועלו בהצלחה', 'error');
       return;
     }
     
     showScreen('loadingScreen');
+    setIsLoading(true);
 
-    setTimeout(() => {
-      const results = processMatching();
-      setMatchingResults(results);
+    try {
+      const formData = new FormData();
+      formData.append('guests_file', uploadedFiles.guests);
+      formData.append('contacts_file', uploadedFiles.contacts);
+
+      const response = await fetch(`${API_BASE_URL}/merge-files`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'שגיאה בעיבוד הקבצים');
+      }
+
+      const data = await response.json();
+      setMatchingResults(data.results);
       setCurrentGuestIndex(0);
 
-      const totalGuests = results.length;
+      const totalGuests = data.results.length;
 
-      if (totalGuests > 20 && !currentUser.isPro && currentUser.usedGuests === 0) {
+      if (totalGuests > 30 && !currentUser.isPro && currentUser.usedGuests === 0) {
         showMessage(
-          `יש לך ${totalGuests} מוזמנים, אבל המגבלה החינמית היא 20. בואו נשדרג!`,
+          `יש לך ${totalGuests} מוזמנים, אבל המגבלה החינמית היא 30. בואו נשדרג!`,
           'warning'
         );
         setTimeout(() => showScreen('paymentScreen'), 3000);
       } else {
         showScreen('matchingScreen');
       }
-    }, 3000);
+    } catch (error) {
+      console.error('Error in merge:', error);
+      showMessage(`שגיאה במיזוג: ${error.message}`, 'error');
+      showScreen('uploadScreen');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // --- תשלום ---
   const payWithWhatsApp = () => {
     showMessage('מפנה לוואטסאפ לתשלום...', 'success');
     
-    // הודעה עם פרטי המשתמש
     const message = `שלום! אני רוצה לשדרג לגרסה המלאה (39 ש״ח)
 📱 מספר טלפון: ${currentUser.phone}
 📊 כמות מוזמנים: ${matchingResults.length}
@@ -447,7 +300,6 @@ const ChatunoTech = () => {
     const whatsappURL = `https://wa.me/972508794079?text=${encodeURIComponent(message)}`;
     window.open(whatsappURL, '_blank');
     
-    // התחל polling לבדוק אם המשתמש שילם
     checkPaymentStatus();
   };
 
@@ -456,12 +308,7 @@ const ChatunoTech = () => {
     
     const checkInterval = setInterval(async () => {
       try {
-        const response = await fetch(`https://new-569016630628.europe-west1.run.app/check-payment-status/${currentUser.phone}`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
+        const response = await fetch(`${API_BASE_URL}/check-payment-status/${currentUser.phone}`);
         
         if (response.ok) {
           const data = await response.json();
@@ -476,9 +323,8 @@ const ChatunoTech = () => {
       } catch (error) {
         console.error('Error checking payment status:', error);
       }
-    }, 5000); // בדיקה כל 5 שניות
+    }, 5000);
 
-    // הפסק אחרי 5 דקות
     setTimeout(() => {
       clearInterval(checkInterval);
     }, 300000);
@@ -487,7 +333,6 @@ const ChatunoTech = () => {
   const continueFree = () => {
     showMessage('אוקיי, נמשיך עם המגבלה החינמית (30 מוזמנים)', 'warning');
     
-    // הראה רק 30 ראשונים
     const limitedResults = matchingResults.slice(0, 30);
     setMatchingResults(limitedResults);
     
@@ -505,7 +350,7 @@ const ChatunoTech = () => {
     const currentGuest = matchingResults[currentGuestIndex];
     setSelectedContacts((prev) => ({
       ...prev,
-      [currentGuest.name]: candidate,
+      [currentGuest.guest]: candidate,
     }));
   };
 
@@ -513,6 +358,8 @@ const ChatunoTech = () => {
     if (currentGuestIndex < matchingResults.length - 1) {
       setCurrentGuestIndex((prev) => prev + 1);
     } else {
+      // Save final results
+      console.log('Final selections:', selectedContacts);
       showScreen('successScreen');
     }
   };
@@ -523,10 +370,6 @@ const ChatunoTech = () => {
     }
   };
 
-  // Init
-  setupFileUploads();
-
-  // --- JSX ---
   return (
     <div>
       <style>{`
@@ -592,6 +435,13 @@ const ChatunoTech = () => {
           transition: all 0.3s ease;
           text-decoration: none;
           display: inline-block;
+          opacity: 1;
+        }
+
+        .btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none !important;
         }
 
         .btn-primary {
@@ -600,7 +450,7 @@ const ChatunoTech = () => {
           box-shadow: 0 8px 25px rgba(231, 111, 81, 0.4);
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
           transform: translateY(-3px);
           box-shadow: 0 12px 35px rgba(231, 111, 81, 0.5);
         }
@@ -618,127 +468,6 @@ const ChatunoTech = () => {
           border: 2px solid #ddd;
           font-size: 0.9rem;
           padding: 10px 20px;
-        }
-
-        .guide-container {
-          background: var(--light-gray);
-          border-radius: 15px;
-          padding: 25px;
-          margin: 20px 0;
-          border: 2px solid #e1e8ed;
-        }
-
-        .guide-steps {
-          list-style: none;
-          padding: 0;
-          counter-reset: step-counter;
-        }
-
-        .guide-step {
-          counter-increment: step-counter;
-          position: relative;
-          padding: 15px 0 15px 60px;
-          border-right: 3px solid var(--teal-green);
-          margin-bottom: 15px;
-          padding-right: 15px;
-        }
-
-        .guide-step::before {
-          content: counter(step-counter);
-          position: absolute;
-          right: -15px;
-          top: 15px;
-          background: var(--teal-green);
-          color: white;
-          width: 30px;
-          height: 30px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: bold;
-          font-size: 0.9rem;
-        }
-
-        .guide-step:last-child {
-          border-right: none;
-        }
-
-        .chrome-link {
-          color: var(--orange-red);
-          text-decoration: none;
-          font-weight: bold;
-        }
-
-        .chrome-link:hover {
-          text-decoration: underline;
-        }
-
-        .info-box {
-          background: rgba(42, 157, 143, 0.1);
-          border-right: 4px solid var(--teal-green);
-          padding: 15px;
-          margin: 15px 0;
-          border-radius: 8px;
-        }
-
-        .popup-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100vw;
-          height: 100vh;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          animation: fadeIn 0.3s ease;
-        }
-
-        .popup-content {
-          background: var(--white);
-          border-radius: 20px;
-          padding: 30px;
-          max-width: 90vw;
-          max-height: 80vh;
-          overflow-y: auto;
-          position: relative;
-          box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-          animation: slideIn 0.3s ease;
-        }
-
-        .popup-close {
-          position: absolute;
-          top: 15px;
-          left: 15px;
-          background: none;
-          border: none;
-          font-size: 1.5rem;
-          cursor: pointer;
-          color: #666;
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.3s ease;
-        }
-
-        .popup-close:hover {
-          background: rgba(231, 111, 81, 0.1);
-          color: var(--orange-red);
-        }
-
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-
-        @keyframes slideIn {
-          from { transform: translateY(-50px) scale(0.9); opacity: 0; }
-          to { transform: translateY(0) scale(1); opacity: 1; }
         }
 
         .status-message {
@@ -789,13 +518,6 @@ const ChatunoTech = () => {
           font-size: 1.8rem;
           margin-bottom: 15px;
           font-weight: 700;
-        }
-
-        h3 {
-          color: var(--dark-text);
-          font-size: 1.4rem;
-          margin-bottom: 10px;
-          font-weight: 600;
         }
 
         p {
@@ -851,52 +573,127 @@ const ChatunoTech = () => {
           color: var(--orange-red);
         }
 
-        #startMergeBtn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
+        .loading-spinner {
+          width: 40px;
+          height: 40px;
+          border: 4px solid #f3f3f3;
+          border-top: 4px solid var(--teal-green);
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin: 20px auto;
         }
 
-        /* פופאפ - סגנונות פשוטים וברורים */
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
         .popup-overlay {
-          position: fixed !important;
-          top: 0 !important;
-          left: 0 !important;
-          width: 100vw !important;
-          height: 100vh !important;
-          background: rgba(0, 0, 0, 0.5) !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          z-index: 9999 !important;
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          animation: fadeIn 0.3s ease;
         }
 
         .popup-content {
-          background: white !important;
-          border-radius: 20px !important;
-          padding: 30px !important;
-          max-width: 500px !important;
-          width: 90% !important;
-          max-height: 80vh !important;
-          overflow-y: auto !important;
-          position: relative !important;
-          box-shadow: 0 20px 60px rgba(0,0,0,0.3) !important;
+          background: var(--white);
+          border-radius: 20px;
+          padding: 30px;
+          max-width: 500px;
+          width: 90%;
+          max-height: 80vh;
+          overflow-y: auto;
+          position: relative;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+          animation: slideIn 0.3s ease;
         }
 
         .popup-close {
-          position: absolute !important;
-          top: 10px !important;
-          left: 15px !important;
-          background: none !important;
-          border: none !important;
-          font-size: 24px !important;
-          cursor: pointer !important;
-          color: #666 !important;
-          width: 30px !important;
-          height: 30px !important;
+          position: absolute;
+          top: 10px;
+          left: 15px;
+          background: none;
+          border: none;
+          font-size: 24px;
+          cursor: pointer;
+          color: #666;
+          width: 30px;
+          height: 30px;
         }
 
         .popup-close:hover {
-          color: #e76f51 !important;
+          color: var(--orange-red);
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+          from { transform: translateY(-50px) scale(0.9); opacity: 0; }
+          to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        .guide-container {
+          background: var(--light-gray);
+          border-radius: 15px;
+          padding: 25px;
+          margin: 20px 0;
+          border: 2px solid #e1e8ed;
+        }
+
+        .guide-steps {
+          list-style: none;
+          padding: 0;
+          counter-reset: step-counter;
+        }
+
+        .guide-step {
+          counter-increment: step-counter;
+          position: relative;
+          padding: 15px 0 15px 60px;
+          border-right: 3px solid var(--teal-green);
+          margin-bottom: 15px;
+          padding-right: 15px;
+        }
+
+        .guide-step::before {
+          content: counter(step-counter);
+          position: absolute;
+          right: -15px;
+          top: 15px;
+          background: var(--teal-green);
+          color: white;
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: bold;
+          font-size: 0.9rem;
+        }
+
+        .guide-step:last-child {
+          border-right: none;
+        }
+
+        .chrome-link {
+          color: var(--orange-red);
+          text-decoration: none;
+          font-weight: bold;
+        }
+
+        .chrome-link:hover {
+          text-decoration: underline;
         }
       `}</style>
     
@@ -905,8 +702,22 @@ const ChatunoTech = () => {
           {/* --- דף נחיתה --- */}
           {currentScreen === 'landingPage' && (
             <div style={{ textAlign: 'center' }}>
-              <h2>המערכת שתחסוך לך שעות של עבודה!</h2>
-              <p>מערכת חכמה שמתאמת אוטומטית בין רשימת המוזמנים לרשימת אנשי הקשר.</p>
+              <h2>🎯 מערכת התאמת מוזמנים חכמה</h2>
+              <p>מערכת חכמה שמתאמת אוטומטית בין רשימת המוזמנים לרשימת אנשי הקשר שלך.</p>
+              <div style={{ 
+                background: 'linear-gradient(135deg, rgba(42, 157, 143, 0.1), rgba(244, 162, 97, 0.1))', 
+                padding: '20px', 
+                borderRadius: '15px', 
+                margin: '20px 0' 
+              }}>
+                <h3>✨ מה המערכת עושה?</h3>
+                <ul style={{ textAlign: 'right', listStyle: 'none', padding: 0 }}>
+                  <li>📋 מעלה קובץ מוזמנים וקובץ אנשי קשר</li>
+                  <li>🔍 מחפשת התאמות אוטומטיות בין השמות</li>
+                  <li>📱 מוסיפה מספרי טלפון למוזמנים</li>
+                  <li>⚡ חוסכת שעות של עבודה ידנית!</li>
+                </ul>
+              </div>
               <button className="btn btn-primary" onClick={startAuth}>
                 🚀 בואו נתחיל!
               </button>
@@ -916,7 +727,7 @@ const ChatunoTech = () => {
           {/* --- מסך אימות --- */}
           {currentScreen === 'authScreen' && (
             <div className="auth-screen" style={{ textAlign: 'center' }}>
-              <h2>בואו נכיר!</h2>
+              <h2>🔐 אימות משתמש</h2>
               <p>הזן את מספר הטלפון שלך כדי להתחיל</p>
 
               <div>
@@ -926,38 +737,43 @@ const ChatunoTech = () => {
                   placeholder="05X-XXXXXXX"
                   value={phoneValue}
                   onChange={(e) => setPhoneValue(e.target.value)}
+                  disabled={isLoading}
                 />
               </div>
 
               {showCodeInput && (
                 <div>
-                  <label>קוד אימות מווצאפ</label>
+                  <label>קוד אימות מווטסאפ</label>
                   <input
                     type="text"
                     placeholder="הזן קוד בן 4 ספרות"
                     value={codeValue}
                     onChange={(e) => setCodeValue(e.target.value)}
+                    disabled={isLoading}
                   />
                 </div>
               )}
 
+              {isLoading && <div className="loading-spinner"></div>}
+
               <button
                 className="btn btn-primary"
                 onClick={() => {
-                  console.log('Button clicked, showCodeInput:', showCodeInput);
                   if (showCodeInput) {
                     verifyCode();
                   } else {
                     sendCode();
                   }
                 }}
+                disabled={isLoading}
                 type="button"
               >
-                {showCodeInput ? '✅ אמת קוד' : '📱 שלח קוד אימות'}
+                {isLoading ? '⏳ טוען...' : 
+                 showCodeInput ? '✅ אמת קוד' : '📱 שלח קוד אימות'}
               </button>
 
               <div>
-                <button className="btn btn-secondary" onClick={goToLanding}>
+                <button className="btn btn-secondary" onClick={goToLanding} disabled={isLoading}>
                   ⬅️ חזרה
                 </button>
               </div>
@@ -967,12 +783,12 @@ const ChatunoTech = () => {
           {/* --- מסך העלאת קבצים --- */}
           {currentScreen === 'uploadScreen' && (
             <div>
-              <h2>העלה את הקבצים שלך</h2>
+              <h2>📁 העלה את הקבצים שלך</h2>
               
-              {/* קובץ אנשי קשר - עכשיו ראשון */}
+              {/* קובץ אנשי קשר */}
               <div style={{ marginBottom: '30px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                  <label>קובץ אנשי קשר (CSV/Excel)</label>
+                  <label>📞 קובץ אנשי קשר (CSV/Excel)</label>
                   <button 
                     className="btn btn-guide" 
                     onClick={() => setShowContactsGuide(true)}
@@ -983,34 +799,43 @@ const ChatunoTech = () => {
                 </div>
 
                 <input 
-                  id="contactsFile" 
                   type="file" 
                   accept=".csv,.xlsx,.xls"
+                  onChange={(e) => handleFileUpload(e, 'contacts')}
                   style={{ marginBottom: '10px' }}
+                  disabled={isLoading}
                 />
-                <div id="contactsStatus"></div>
+                {parsedData.contacts.length > 0 && (
+                  <div className="status-message status-success">
+                    ✅ נטענו {parsedData.contacts.length} אנשי קשר
+                  </div>
+                )}
               </div>
 
-              {/* קובץ מוזמנים - עכשיו שני */}
+              {/* קובץ מוזמנים */}
               <div style={{ marginBottom: '30px' }}>
-                <label>קובץ מוזמנים (CSV/Excel)</label>
+                <label>👰 קובץ מוזמנים (CSV/Excel)</label>
                 <input 
-                  id="guestsFile" 
                   type="file" 
                   accept=".csv,.xlsx,.xls" 
+                  onChange={(e) => handleFileUpload(e, 'guests')}
                   style={{ marginBottom: '10px' }}
+                  disabled={isLoading}
                 />
-                <div id="guestsStatus"></div>
+                {parsedData.guests.length > 0 && (
+                  <div className="status-message status-success">
+                    ✅ נטענו {parsedData.guests.length} מוזמנים
+                  </div>
+                )}
               </div>
 
               <button 
-                id="startMergeBtn" 
                 className="btn btn-primary" 
                 onClick={startMerge}
-                disabled={true}
-                style={{ opacity: 0.5, width: '100%' }}
+                disabled={!uploadedFiles.guests || !uploadedFiles.contacts || isLoading}
+                style={{ width: '100%' }}
               >
-                🚀 התחל מיזוג
+                {isLoading ? '⏳ טוען...' : '🚀 התחל מיזוג'}
               </button>
             </div>
           )}
@@ -1019,48 +844,76 @@ const ChatunoTech = () => {
           {currentScreen === 'loadingScreen' && (
             <div style={{ textAlign: 'center' }}>
               <h2>⏳ מבצע מיזוג...</h2>
+              <div className="loading-spinner"></div>
               <p>מנתח את הקבצים ומחפש התאמות...</p>
+              <div style={{ 
+                background: 'rgba(42, 157, 143, 0.1)', 
+                padding: '15px', 
+                borderRadius: '10px',
+                margin: '20px 0'
+              }}>
+                💡 <strong>טיפ:</strong> התהליך יכול לקחת כמה רגעים, תלוי בגודל הקבצים
+              </div>
             </div>
           )}
 
           {/* --- מסך התאמות --- */}
           {currentScreen === 'matchingScreen' && (
             <div>
-              <h2>התאמות שנמצאו</h2>
+              <h2>🎯 התאמות שנמצאו</h2>
               {matchingResults.length > 0 && (
                 <div>
-                  <p style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>
-                    מוזמן {currentGuestIndex + 1} מתוך {matchingResults.length}: {matchingResults[currentGuestIndex].name}
-                  </p>
+                  <div style={{ 
+                    background: 'linear-gradient(135deg, var(--teal-green), var(--orange-gold))',
+                    color: 'white',
+                    padding: '15px',
+                    borderRadius: '10px',
+                    marginBottom: '20px',
+                    textAlign: 'center'
+                  }}>
+                    <strong style={{ fontSize: '1.2rem' }}>
+                      מוזמן {currentGuestIndex + 1} מתוך {matchingResults.length}
+                    </strong>
+                    <br />
+                    <span style={{ fontSize: '1.1rem' }}>
+                      {matchingResults[currentGuestIndex].guest}
+                    </span>
+                  </div>
                   
-                  {matchingResults[currentGuestIndex].candidates.map((candidate, index) => (
-                    <div key={index} className="candidate-card">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <strong>{candidate.name}</strong>
-                          <br />
-                          <small style={{ color: '#666' }}>{candidate.phone}</small>
-                          <br />
-                          <small style={{ color: '#888' }}>{candidate.reason}</small>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span className={`score-badge ${
-                            candidate.score >= 0.8 ? 'score-high' : 
-                            candidate.score >= 0.6 ? 'score-medium' : 'score-low'
-                          }`}>
-                            {Math.round(candidate.score * 100)}%
-                          </span>
-                          <button 
-                            className="btn btn-secondary" 
-                            onClick={() => selectCandidate(candidate)}
-                            style={{ padding: '8px 16px', margin: '0' }}
-                          >
-                            בחר
-                          </button>
+                  {matchingResults[currentGuestIndex].candidates?.length > 0 ? (
+                    matchingResults[currentGuestIndex].candidates.map((candidate, index) => (
+                      <div key={index} className="candidate-card">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <strong>{candidate.name}</strong>
+                            <br />
+                            <small style={{ color: '#666' }}>📱 {candidate.phone}</small>
+                            <br />
+                            <small style={{ color: '#888' }}>{candidate.reason}</small>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span className={`score-badge ${
+                              candidate.score >= 80 ? 'score-high' : 
+                              candidate.score >= 60 ? 'score-medium' : 'score-low'
+                            }`}>
+                              {candidate.score}%
+                            </span>
+                            <button 
+                              className="btn btn-secondary" 
+                              onClick={() => selectCandidate(candidate)}
+                              style={{ padding: '8px 16px', margin: '0' }}
+                            >
+                              ✅ בחר
+                            </button>
+                          </div>
                         </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="status-message status-warning">
+                      ⚠️ לא נמצאו התאמות למוזמן זה
                     </div>
-                  ))}
+                  )}
                   
                   <div style={{ marginTop: '30px', display: 'flex', justifyContent: 'space-between' }}>
                     <button 
@@ -1158,10 +1011,16 @@ const ChatunoTech = () => {
             <div style={{ textAlign: 'center' }}>
               <h2>🎉 כל המוזמנים עודכנו בהצלחה!</h2>
               <p>המערכת השלימה את תהליך ההתאמה</p>
-              <div style={{ marginTop: '30px' }}>
-                <p><strong>סיכום:</strong></p>
+              <div style={{ 
+                background: 'var(--light-gray)',
+                padding: '20px',
+                borderRadius: '15px',
+                marginTop: '30px'
+              }}>
+                <p><strong>📊 סיכום:</strong></p>
                 <p>• {matchingResults.length} מוזמנים עובדו</p>
                 <p>• {Object.keys(selectedContacts).length} התאמות נבחרו</p>
+                <p>• {matchingResults.length - Object.keys(selectedContacts).length} מוזמנים ללא מספר</p>
               </div>
               <button className="btn btn-primary" onClick={() => window.location.reload()}>
                 🔄 התחל מחדש
@@ -1169,14 +1028,70 @@ const ChatunoTech = () => {
             </div>
           )}
 
+          {/* הודעות סטטוס */}
           {message.text && (
             <div className={`status-message status-${message.type}`}>
               {message.text}
             </div>
           )}
+
+          {/* פופאפ מדריך אנשי קשר */}
+          {showContactsGuide && (
+            <div className="popup-overlay">
+              <div className="popup-content">
+                <button 
+                  className="popup-close" 
+                  onClick={() => setShowContactsGuide(false)}
+                >
+                  ✕
+                </button>
+                <h3>📱 איך להוציא אנשי קשר מהטלפון?</h3>
+                
+                <div className="guide-container">
+                  <h4>📱 אנדרואיד:</h4>
+                  <ol className="guide-steps">
+                    <li className="guide-step">
+                      פתח את אפליקציית <strong>אנשי קשר</strong>
+                    </li>
+                    <li className="guide-step">
+                      לחץ על <strong>⋮</strong> (שלוש נקודות) ובחר <strong>ייצא</strong>
+                    </li>
+                    <li className="guide-step">
+                      בחר <strong>ייצא ל-VCF</strong> או <strong>CSV</strong>
+                    </li>
+                    <li className="guide-step">
+                      שמור את הקובץ ועלה אותו כאן
+                    </li>
+                  </ol>
+                </div>
+
+                <div className="guide-container">
+                  <h4>🍎 iPhone:</h4>
+                  <ol className="guide-steps">
+                    <li className="guide-step">
+                      פתח <strong>הגדרות</strong> → <strong>אנשי קשר</strong>
+                    </li>
+                    <li className="guide-step">
+                      בחר <strong>ייצא אנשי קשר vCard</strong>
+                    </li>
+                    <li className="guide-step">
+                      שלח לעצמך במייל ועלה כאן
+                    </li>
+                  </ol>
+                </div>
+
+                <div style={{ 
+                  background: 'rgba(42, 157, 143, 0.1)', 
+                  padding: '15px', 
+                  borderRadius: '10px',
+                  marginTop: '20px'
+                }}>
+                  💡 <strong>טיפ:</strong> אם יש לך בעיות, תוכל גם ליצור קובץ Excel פשוט עם עמודות "שם" ו"טלפון"
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-
-
       </div>
     </div>
   );
