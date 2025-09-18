@@ -69,20 +69,27 @@ try:
             print(f"❌ Webhook error: {e}")
             return {"status": "error", "message": str(e)}
     
+    def format_phone_for_whatsapp(phone: str) -> str:
+    """המרה לפורמט WhatsApp: 050X -> 972-50X"""
+    digits = re.sub(r'\D', '', phone)  # רק ספרות
+    if digits.startswith('0'):
+        digits = '972' + digits[1:]  # 050 -> 97250
+    return digits
+
     @app.post("/send-code")
     async def send_code(data: dict):
-        print(f"📱 Send code called for: {data.get('phone', 'unknown')}")
         phone = data.get("phone")
         if not phone:
-            print("❌ Phone number missing")
             raise HTTPException(status_code=400, detail="Phone number is required")
         
+        # המרה לפורמט נכון
+        formatted_phone = format_phone_for_whatsapp(phone)
+        
         code = str(random.randint(1000, 9999))
-        pending_codes[phone] = code
-        print(f"✅ Code generated: {code}")
-    
+        pending_codes[phone] = code  # שמור במקור
+        
         payload = {
-            "chatId": f"{phone}@c.us",
+            "chatId": f"{formatted_phone}@c.us",  # השתמש בפורמט
             "message": f"🔐 קוד האימות שלך הוא: {code}"
         }
     
