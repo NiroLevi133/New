@@ -60,57 +60,64 @@ try:
         return digits
 
     async def log_user_to_sheets(phone: str):
-        """שמירת משתמש חדש ב-Google Sheets"""
-        try:
-            print(f"Attempting to log user {phone} to Google Sheets")
+    """שמירת משתמש חדש ב-Google Sheets"""
+    try:
+        print(f"Attempting to log user {phone} to Google Sheets")
+        
+        if not LOGIC_AVAILABLE:
+            print("Logic not available, skipping Google Sheets logging")
+            return
             
-            if not LOGIC_AVAILABLE:
-                print("Logic not available, skipping Google Sheets logging")
-                return
-                
-            # חיבור ל-Google Sheets
-            import google.auth
-            import gspread
+        # קבלת משתני סביבה - זה החלק שהיה חסר!
+        sheet_id = os.environ.get('GOOGLE_SHEET_ID')
+        sheet_name = os.environ.get('GOOGLE_SHEET_NAME', 'users1')
+        
+        if not sheet_id:
+            print("❌ GOOGLE_SHEET_ID not found in environment variables")
+            return
             
-            creds, _ = google.auth.default()
-            gc = gspread.authorize(creds)
-            
-            # פתח את הגיליון
-            sheet_id = "1kMilBqKmldMBuvHtOdJsEGfo6Kb-J0W5rEXAhmG57b0"
-            sheet_name = "users1"
-            
-            sh = gc.open_by_key(sheet_id)
-            ws = sh.worksheet(sheet_name)
-            
-            # בדוק אם המשתמש כבר קיים
-            phone_values = ws.col_values(3) if ws.col_values(3) else []
-            if phone in phone_values:
-                print(f"User {phone} already exists")
-                return
-            
-            # מצא השורה הבאה
-            all_values = ws.get_all_values()
-            next_row = len(all_values) + 1
-            next_id = next_row - 1
-            
-            # הוסף משתמש חדש
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            ws.update(f"A{next_row}:F{next_row}", [[
-                next_id,          # A: id
-                phone,            # B: full_name 
-                phone,            # C: phone  
-                current_time,     # D: join_date
-                0,                # E: matches_count
-                False             # F: is_premium
-            ]])
-            
-            print(f"✅ User {phone} logged successfully with ID {next_id}")
-            
-        except Exception as e:
-            print(f"❌ Failed to log user to sheets: {e}")
-            import traceback
-            print(f"Full traceback: {traceback.format_exc()}")
+        print(f"📋 Using sheet ID: {sheet_id}, sheet name: {sheet_name}")
+        
+        # חיבור ל-Google Sheets
+        import google.auth
+        import gspread
+        
+        creds, _ = google.auth.default()
+        gc = gspread.authorize(creds)
+        
+        # פתח את הגיליון עם המשתנים מהסביבה
+        sh = gc.open_by_key(sheet_id)
+        ws = sh.worksheet(sheet_name)
+        
+        # בדוק אם המשתמש כבר קיים
+        phone_values = ws.col_values(3) if ws.col_values(3) else []
+        if phone in phone_values:
+            print(f"User {phone} already exists")
+            return
+        
+        # מצא השורה הבאה
+        all_values = ws.get_all_values()
+        next_row = len(all_values) + 1
+        next_id = next_row - 1
+        
+        # הוסף משתמש חדש
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        ws.update(f"A{next_row}:F{next_row}", [[
+            next_id,          # A: id
+            phone,            # B: full_name 
+            phone,            # C: phone  
+            current_time,     # D: join_date
+            0,                # E: matches_count
+            False             # F: is_premium
+        ]])
+        
+        print(f"✅ User {phone} logged successfully with ID {next_id}")
+        
+    except Exception as e:
+        print(f"❌ Failed to log user to sheets: {e}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
     
     @app.get("/")
     async def root():
