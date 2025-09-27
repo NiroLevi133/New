@@ -14,6 +14,7 @@ try:
     import os
     import uvicorn
     import re
+    import datetime
     print("✅ All basic libraries imported successfully")
     
     # בדיקה אם קובץ logic קיים
@@ -50,6 +51,66 @@ try:
     pending_codes = {}
     
     print("📋 Defining routes...")
+
+    def format_phone_for_whatsapp(phone: str) -> str:
+        """המרה לפורמט WhatsApp: 050X -> 972-50X"""
+        digits = re.sub(r'\D', '', phone)  # רק ספרות
+        if digits.startswith('0'):
+            digits = '972' + digits[1:]  # 050 -> 97250
+        return digits
+
+    async def log_user_to_sheets(phone: str):
+        """שמירת משתמש חדש ב-Google Sheets"""
+        try:
+            print(f"Attempting to log user {phone} to Google Sheets")
+            
+            if not LOGIC_AVAILABLE:
+                print("Logic not available, skipping Google Sheets logging")
+                return
+                
+            # חיבור ל-Google Sheets
+            import google.auth
+            import gspread
+            
+            creds, _ = google.auth.default()
+            gc = gspread.authorize(creds)
+            
+            # פתח את הגיליון
+            sheet_id = "1kMilBqKmldMBuvHtOdJsEGfo6Kb-J0W5rEXAhmG57b0"
+            sheet_name = "users1"
+            
+            sh = gc.open_by_key(sheet_id)
+            ws = sh.worksheet(sheet_name)
+            
+            # בדוק אם המשתמש כבר קיים
+            phone_values = ws.col_values(3) if ws.col_values(3) else []
+            if phone in phone_values:
+                print(f"User {phone} already exists")
+                return
+            
+            # מצא השורה הבאה
+            all_values = ws.get_all_values()
+            next_row = len(all_values) + 1
+            next_id = next_row - 1
+            
+            # הוסף משתמש חדש
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            ws.update(f"A{next_row}:F{next_row}", [[
+                next_id,          # A: id
+                phone,            # B: full_name 
+                phone,            # C: phone  
+                current_time,     # D: join_date
+                0,                # E: matches_count
+                False             # F: is_premium
+            ]])
+            
+            print(f"✅ User {phone} logged successfully with ID {next_id}")
+            
+        except Exception as e:
+            print(f"❌ Failed to log user to sheets: {e}")
+            import traceback
+            print(f"Full traceback: {traceback.format_exc()}")
     
     @app.get("/")
     async def root():
@@ -71,13 +132,6 @@ try:
         except Exception as e:
             print(f"❌ Webhook error: {e}")
             return {"status": "error", "message": str(e)}
-
-    def format_phone_for_whatsapp(phone: str) -> str:
-        """המרה לפורמט WhatsApp: 050X -> 972-50X"""
-        digits = re.sub(r'\D', '', phone)  # רק ספרות
-        if digits.startswith('0'):
-            digits = '972' + digits[1:]  # 050 -> 97250
-        return digits
     
     @app.post("/send-code")
     async def send_code(data: dict):
@@ -107,14 +161,17 @@ try:
     
     @app.post("/verify-code")
     async def verify_code(data: dict):
+        print(f"🔐 Verify code called for: {data.get('phone', 'unknown')}")
         phone = data.get("phone")
         code = data.get("code")
         
         if not phone or not code:
+            print("❌ Phone or code missing")
             raise HTTPException(status_code=400, detail="Phone and code are required")
         
         if pending_codes.get(phone) == code:
             pending_codes.pop(phone, None)
+            print("✅ Code verified successfully")
             
             # שמירה ב-Google Sheets
             await log_user_to_sheets(phone)
@@ -125,66 +182,8 @@ try:
                 "is_premium": False
             }
         
+        print("❌ Code verification failed")
         return {"status": "failed"}
-
-    async def log_user_to_sheets(phone: str):
-        """שמירת משתמש חדש ב-Google Sheets"""
-        try:
-            print(f"Attempting to log user {phone} to Google Sheets")
-            
-            if not LOGIC_AVAILABLE:
-                print("Logic not available, skipping Google Sheets logging")
-                return
-                
-            # חיבור ל-Google Sheets
-            import google.auth
-            import gspread
-            
-            creds, _ = google.auth.default()
-            gc = gspread.authorize(creds)
-            
-            # פתח את הגיליון
-            sheet_id = os.getenv("GOOGLE_SHEET_ID", "1kMilBqKmldMBuvHtOdJsEGfo6Kb-J0W5rEXAhmG57b0")
-            sheet_name = os.getenv("GOOGLE_SHEET_NAME", "users1")
-            
-            print(f"Opening sheet {sheet_id}, worksheet {sheet_name}")
-            
-            sh = gc.open_by_key(sheet_id)
-            ws = sh.worksheet(sheet_name)
-            
-            # בדוק אם המשתמש כבר קיים
-            try:
-                phone_values = ws.col_values(3)  # עמודה C (phone)
-                if phone in phone_values:
-                    print(f"User {phone} already exists")
-                    return
-            except:
-                phone_values = []
-            
-            # מצא את השורה הבאה
-            all_values = ws.get_all_values()
-            next_row = len(all_values) + 1
-            next_id = len([row for row in all_values[1:] if row and row[0]]) + 1  # ספירה נכונה של IDs
-            
-            # הוסף משתמש חדש
-            import datetime
-            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            ws.update_range(f"A{next_row}:F{next_row}", [[
-                str(next_id),     # A: id
-                phone,            # B: full_name 
-                phone,            # C: phone  
-                current_time,     # D: join_date
-                "0",              # E: matches_count
-                "FALSE"           # F: is_premium
-            ]])
-            
-            print(f"User {phone} logged to Google Sheets with ID {next_id} at row {next_row}")
-            
-        except Exception as e:
-            print(f"Failed to log user to sheets: {e}")
-            import traceback
-            print(f"Full traceback: {traceback.format_exc()}")
     
     @app.post("/log-user")
     async def log_user(user_data: dict):
@@ -263,7 +262,6 @@ try:
             print(f"📍 Full traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"שגיאה בעיבוד הקבצים: {str(e)}")
 
-    # הוסף גם endpoint חדש ליצירת קובץ דוגמה
     @app.get("/download-contacts-template")
     async def download_contacts_template():
         """הורדת קובץ דוגמה לאנשי קשר"""
@@ -286,6 +284,36 @@ try:
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"שגיאה ביצירת הקובץ: {str(e)}")
+
+    @app.get("/download-guests-template")
+    async def download_guests_template():
+        """הורדת קובץ דוגמה למוזמנים"""
+        try:
+            # יצירת דוגמה למוזמנים
+            template_data = {
+                'שם מלא': [
+                    'ישראל כהן',
+                    'שרה לוי', 
+                    'דוד אברהם',
+                    'רחל גולד'
+                ]
+            }
+            
+            template_df = pd.DataFrame(template_data)
+            
+            # יצירת buffer
+            from logic import to_buf
+            excel_buffer = to_buf(template_df)
+            
+            from fastapi.responses import StreamingResponse
+            
+            return StreamingResponse(
+                BytesIO(excel_buffer.getvalue()),
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": "attachment; filename=guests_template.xlsx"}
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"שגיאה ביצירת קובץ דוגמה: {str(e)}")
     
     print("✅ All routes defined successfully")
     
