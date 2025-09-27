@@ -158,84 +158,29 @@ const ChatunoTech = () => {
 
   // --- פונקציות עיבוד קבצים ---
   const handleFileUpload = async (event, type) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  const file = event.target.files[0];
+  if (!file) return;
 
-    try {
-      showMessage(`טוען קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'}...`, 'success');
-      
-      // Parse file content
-      const content = await readFileAsText(file);
-      const parsed = parseFileContent(content, type === 'contacts');
-      
-      if (parsed.length === 0) {
-        throw new Error('לא נמצאו נתונים תקינים בקובץ');
-      }
-      
-      setParsedData(prev => ({
-        ...prev,
-        [type]: parsed
-      }));
-      
-      setUploadedFiles(prev => ({
-        ...prev,
-        [type]: file
-      }));
-      
-      showMessage(`✅ קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'} נטען בהצלחה - ${parsed.length} רשומות`, 'success');
-      
-    } catch (error) {
-      console.error(`Error uploading ${type}:`, error);
-      showMessage(`שגיאה: ${error.message}`, 'error');
-    }
-  };
+  try {
+    showMessage(`טוען קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'}...`, 'success');
+    
+    // פשוט שמור את הקובץ, אל תנסה לקרוא אותו
+    setUploadedFiles(prev => ({
+      ...prev,
+      [type]: file
+    }));
+    
+    showMessage(`קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'} נטען בהצלחה`, 'success');
+    
+  } catch (error) {
+    console.error(`Error uploading ${type}:`, error);
+    showMessage(`שגיאה: ${error.message}`, 'error');
+  }
+};
 
-  const readFileAsText = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = () => reject(new Error('שגיאה בקריאת הקובץ'));
-      reader.readAsText(file, 'UTF-8');
-    });
-  };
 
-  const parseFileContent = (content, isContacts = false) => {
-    try {
-      const lines = content.split('\\n').filter(line => line.trim());
-      if (lines.length < 2) {
-        throw new Error('הקובץ לא מכיל מספיק נתונים');
-      }
-      
-      // Detect separator
-      let separator = ',';
-      if (lines[0].includes('\\t')) separator = '\\t';
-      
-      const headers = lines[0].split(separator).map(h => h.trim().replace(/"/g, ''));
-      
-      const data = lines.slice(1).map((line, index) => {
-        const values = line.split(separator).map(v => v.trim().replace(/"/g, ''));
-        const obj = { _rowIndex: index + 2 };
-        
-        headers.forEach((header, idx) => {
-          obj[header] = values[idx] || '';
-        });
-        
-        // נרמול השדות
-        if (isContacts) {
-          obj.normalizedName = obj.full_name || obj.Name || obj.name || obj['שם'] || obj['שם מלא'] || obj['Full Name'] || '';
-          obj.normalizedPhone = obj.phone || obj.Phone || obj['טלפון'] || obj['מספר טלפון'] || '';
-        } else {
-          obj.normalizedName = obj.full_name || obj.Name || obj.name || obj['שם'] || obj['שם מוזמן'] || obj['שם מלא'] || '';
-        }
-        
-        return obj;
-      }).filter(obj => obj.normalizedName && obj.normalizedName.trim());
-      
-      return data;
-    } catch (error) {
-      throw new Error(`שגיאה בפענוח הקובץ: ${error.message}`);
-    }
-  };
+
+
 
   // --- מיזוג באמצעות Backend ---
   const startMerge = async () => {
