@@ -19,6 +19,8 @@ const ChatunoTech = () => {
     guests: null,
     contacts: null,
   });
+  const [contactsSource, setContactsSource] = useState('file'); // 'file' or 'mobile'
+  const [mobileContacts, setMobileContacts] = useState([]);
   const [matchingResults, setMatchingResults] = useState([]);
   const [currentGuestIndex, setCurrentGuestIndex] = useState(0);
   const [selectedContacts, setSelectedContacts] = useState({});
@@ -31,12 +33,36 @@ const ChatunoTech = () => {
     group: '',
     searchTerm: ''
   });
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [manualPhone, setManualPhone] = useState('');
+  const [searchInContacts, setSearchInContacts] = useState('');
+  const [supportsMobileContacts, setSupportsMobileContacts] = useState(false);
 
   // Auth
   const [phoneValue, setPhoneValue] = useState('');
   const [fullNameValue, setFullNameValue] = useState('');
   const [codeValue, setCodeValue] = useState('');
   const [showCodeInput, setShowCodeInput] = useState(false);
+
+  // Check mobile contacts support
+  useEffect(() => {
+    checkMobileSupport();
+  }, []);
+
+  const checkMobileSupport = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/check-mobile-support`, {
+        headers: {
+          'User-Agent': navigator.userAgent
+        }
+      });
+      const data = await response.json();
+      setSupportsMobileContacts(data.supports_contacts_api);
+    } catch (error) {
+      console.error('Error checking mobile support:', error);
+      setSupportsMobileContacts(false);
+    }
+  };
 
   // Navigation
   const showScreen = (screenId) => setCurrentScreen(screenId);
@@ -59,8 +85,6 @@ const ChatunoTech = () => {
 
   // --- פונקציות אימות ---
   const sendCode = async () => {
-    console.log('sendCode called with:', phoneValue, fullNameValue);
-    
     if (!phoneValue || phoneValue.length < 10) {
       showMessage('אנא הזן מספר טלפון תקין', 'error');
       return;
@@ -96,7 +120,6 @@ const ChatunoTech = () => {
           fullName: fullNameValue 
         }));
         
-        // Debug - אפשר להסיר בפרודקשן
         console.log('Sent code:', data.code);
       } else {
         const errorData = await response.json();
@@ -111,8 +134,6 @@ const ChatunoTech = () => {
   };
 
   const verifyCode = async () => {
-    console.log('verifyCode called with:', codeValue);
-    
     if (!codeValue || codeValue.length !== 4) {
       showMessage('אנא הזן קוד בן 4 ספרות', 'error');
       return;
@@ -138,7 +159,6 @@ const ChatunoTech = () => {
         const data = await response.json();
         
         if (data.status === 'success') {
-          // עדכון משתמש
           setCurrentUser((prev) => ({ 
             ...prev, 
             dailyMatchesUsed: data.daily_matches_used || 0,
@@ -189,11 +209,47 @@ const ChatunoTech = () => {
         [type]: file
       }));
       
+      if (type === 'contacts') {
+        setContactsSource('file');
+      }
+      
       showMessage(`קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'} נטען בהצלחה`, 'success');
       
     } catch (error) {
       console.error(`Error uploading ${type}:`, error);
       showMessage(`שגיאה: ${error.message}`, 'error');
+    }
+  };
+
+  // --- גישה לאנשי קשר במובייל ---
+  const requestMobileContacts = async () => {
+    if (!('contacts' in navigator) || !('ContactsManager' in window)) {
+      showMessage('❌ הדפדפן לא תומך בגישה לאנשי קשר. השתמש בקובץ במקום.', 'error');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      showMessage('📱 מבקש גישה לאנשי קשר...', 'success');
+
+      const contacts = await navigator.contacts.select(['name', 'tel'], { multiple: true });
+      
+      const formattedContacts = contacts.map(contact => ({
+        name: contact.name?.[0] || 'ללא שם',
+        phone: contact.tel?.[0] || ''
+      })).filter(contact => contact.phone);
+
+      setMobileContacts(formattedContacts);
+      setContactsSource('mobile');
+      setUploadedFiles(prev => ({ ...prev, contacts: 'mobile_contacts' }));
+      
+      showMessage(`✅ נטענו ${formattedContacts.length} אנשי קשר מהטלפון!`, 'success');
+      
+    } catch (error) {
+      console.error('Error accessing contacts:', error);
+      showMessage('❌ לא ניתן לגשת לאנשי קשר. בדוק הרשאות או השתמש בקובץ.', 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -210,8 +266,15 @@ const ChatunoTech = () => {
     try {
       const formData = new FormData();
       formData.append('guests_file', uploadedFiles.guests);
-      formData.append('contacts_file', uploadedFiles.contacts);
       formData.append('phone', currentUser.phone);
+      formData.append('contacts_source', contactsSource);
+
+      if (contactsSource === 'mobile') {
+        const contactsBlob = new Blob([JSON.stringify(mobileContacts)], { type: 'application/json' });
+        formData.append('contacts_file', contactsBlob, 'mobile_contacts.json');
+      } else {
+        formData.append('contacts_file', uploadedFiles.contacts);
+      }
 
       const response = await fetch(`${API_BASE_URL}/merge-files`, {
         method: 'POST',
@@ -227,14 +290,12 @@ const ChatunoTech = () => {
       setMatchingResults(data.results);
       setFileHash(data.file_hash);
       
-      // התחל מהמקום שעצר (אם המשיך מקובץ קיים)
       const startIndex = data.start_index || 0;
       setCurrentGuestIndex(startIndex);
 
       const totalGuests = data.results.length;
       const remainingLimit = getRemainingDailyLimit();
 
-      // הצג התרעה על מגבלה אם צריך
       if (!currentUser.isPro) {
         if (totalGuests > remainingLimit) {
           showMessage(
@@ -254,6 +315,163 @@ const ChatunoTech = () => {
       console.error('Error in merge:', error);
       showMessage(`שגיאה במיזוג: ${error.message}`, 'error');
       showScreen('uploadScreen');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- התאמות ---
+  const selectCandidate = (candidate) => {
+    const currentGuest = matchingResults[currentGuestIndex];
+    setSelectedContacts((prev) => ({
+      ...prev,
+      [currentGuest.guest]: candidate,
+    }));
+    setShowAddContact(false);
+    setManualPhone('');
+    setSearchInContacts('');
+  };
+
+  // הוספת מספר ידני
+  const addManualContact = () => {
+    if (!manualPhone.trim() || manualPhone.trim().length < 9) {
+      showMessage('אנא הזן מספר טלפון תקין', 'error');
+      return;
+    }
+
+    const newContact = {
+      name: '📞 מספר שהוספת ידנית',
+      phone: manualPhone.trim(),
+      score: 100,
+      reason: 'הוסף ידנית',
+      isManual: true
+    };
+
+    selectCandidate(newContact);
+    showMessage('✅ מספר נוסף בהצלחה!', 'success');
+  };
+
+  // חיפוש באנשי קשר
+  const searchAndSelectContact = () => {
+    if (!searchInContacts.trim()) {
+      showMessage('אנא הזן שם לחיפוש', 'error');
+      return;
+    }
+
+    const searchTerm = searchInContacts.toLowerCase();
+    let contactsToSearch = [];
+
+    if (contactsSource === 'mobile') {
+      contactsToSearch = mobileContacts;
+    } else {
+      // חיפוש בכל אנשי הקשר מהקובץ
+      matchingResults.forEach(result => {
+        if (result.candidates) {
+          contactsToSearch = [...contactsToSearch, ...result.candidates];
+        }
+      });
+    }
+
+    const foundContact = contactsToSearch.find(contact => 
+      contact.name.toLowerCase().includes(searchTerm)
+    );
+
+    if (foundContact) {
+      const selectedContact = {
+        ...foundContact,
+        reason: 'נמצא בחיפוש ידני'
+      };
+      selectCandidate(selectedContact);
+      showMessage(`✅ נמצא: ${foundContact.name}`, 'success');
+    } else {
+      showMessage('❌ לא נמצא איש קשר עם השם הזה', 'error');
+    }
+  };
+
+  const nextGuest = async () => {
+    const remainingLimit = getRemainingDailyLimit();
+    const processedCount = currentGuestIndex + 1;
+    
+    if (currentUser.phone) {
+      try {
+        await fetch(`${API_BASE_URL}/update-match-count`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            phone: currentUser.phone,
+            matches_used: currentUser.isPro ? 0 : Math.min(processedCount, currentUser.dailyMatchesUsed + 1),
+            progress: processedCount
+          })
+        });
+      } catch (error) {
+        console.error('Error updating progress:', error);
+      }
+    }
+
+    if (currentGuestIndex < matchingResults.length - 1) {
+      if (!currentUser.isPro && processedCount >= remainingLimit + currentUser.dailyMatchesUsed) {
+        showMessage(`הגעת למגבלה היומית (${DAILY_LIMIT} התאמות). חזור מחר או שדרג לפרימיום!`, 'warning');
+        setTimeout(() => showScreen('paymentScreen'), 2000);
+        return;
+      }
+      
+      setCurrentGuestIndex((prev) => prev + 1);
+      
+      if (!currentUser.isPro) {
+        setCurrentUser(prev => ({
+          ...prev,
+          dailyMatchesUsed: Math.min(prev.dailyMatchesUsed + 1, DAILY_LIMIT)
+        }));
+      }
+    } else {
+      showScreen('successScreen');
+    }
+  };
+
+  const previousGuest = () => {
+    if (currentGuestIndex > 0) {
+      setCurrentGuestIndex((prev) => prev - 1);
+    }
+  };
+
+  // --- ייצוא לקובץ ---
+  const exportResults = async () => {
+    try {
+      setIsLoading(true);
+      showMessage('📄 מכין קובץ לייצוא...', 'success');
+
+      const response = await fetch(`${API_BASE_URL}/export-results`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          results: matchingResults.slice(0, currentGuestIndex + 1),
+          selected_contacts: selectedContacts
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('שגיאה בייצוא הקובץ');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `guests_with_contacts_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      showMessage('✅ קובץ יוצא בהצלחה!', 'success');
+    } catch (error) {
+      console.error('Export error:', error);
+      showMessage('❌ שגיאה בייצוא הקובץ', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -309,109 +527,6 @@ const ChatunoTech = () => {
     setTimeout(() => showScreen('matchingScreen'), 1500);
   };
 
-  // --- התאמות ---
-  const selectCandidate = (candidate) => {
-    const currentGuest = matchingResults[currentGuestIndex];
-    setSelectedContacts((prev) => ({
-      ...prev,
-      [currentGuest.guest]: candidate,
-    }));
-  };
-
-  const nextGuest = async () => {
-    const remainingLimit = getRemainingDailyLimit();
-    const processedCount = currentGuestIndex + 1;
-    
-    // עדכן התקדמות במסד הנתונים
-    if (currentUser.phone) {
-      try {
-        await fetch(`${API_BASE_URL}/update-match-count`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            phone: currentUser.phone,
-            matches_used: currentUser.isPro ? 0 : Math.min(processedCount, currentUser.dailyMatchesUsed + 1),
-            progress: processedCount
-          })
-        });
-      } catch (error) {
-        console.error('Error updating progress:', error);
-      }
-    }
-
-    if (currentGuestIndex < matchingResults.length - 1) {
-      // בדוק מגבלה יומית
-      if (!currentUser.isPro && processedCount >= remainingLimit + currentUser.dailyMatchesUsed) {
-        showMessage(`הגעת למגבלה היומית (${DAILY_LIMIT} התאמות). חזור מחר או שדרג לפרימיום!`, 'warning');
-        setTimeout(() => showScreen('paymentScreen'), 2000);
-        return;
-      }
-      
-      setCurrentGuestIndex((prev) => prev + 1);
-      
-      // עדכן מונה השימושים המקומי
-      if (!currentUser.isPro) {
-        setCurrentUser(prev => ({
-          ...prev,
-          dailyMatchesUsed: Math.min(prev.dailyMatchesUsed + 1, DAILY_LIMIT)
-        }));
-      }
-    } else {
-      // סיום - הצג סיכום
-      showScreen('successScreen');
-    }
-  };
-
-  const previousGuest = () => {
-    if (currentGuestIndex > 0) {
-      setCurrentGuestIndex((prev) => prev - 1);
-    }
-  };
-
-  // --- ייצוא לקובץ ---
-  const exportResults = async () => {
-    try {
-      setIsLoading(true);
-      showMessage('📄 מכין קובץ לייצוא...', 'success');
-
-      const response = await fetch(`${API_BASE_URL}/export-results`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          results: matchingResults,
-          selected_contacts: selectedContacts
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('שגיאה בייצוא הקובץ');
-      }
-
-      // הורד את הקובץ
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `guests_with_contacts_${new Date().toISOString().split('T')[0]}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      showMessage('✅ קובץ יוצא בהצלחה!', 'success');
-    } catch (error) {
-      console.error('Export error:', error);
-      showMessage('❌ שגיאה בייצוא הקובץ', 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // --- פילטרים ---
   const getFilteredResults = () => {
     if (!matchingResults) return [];
@@ -419,7 +534,6 @@ const ChatunoTech = () => {
     return matchingResults.filter(result => {
       const details = result.guest_details || {};
       
-      // פילטר לפי צד
       if (filters.side) {
         const side = details['צד'] || details['side'] || '';
         if (!side.toLowerCase().includes(filters.side.toLowerCase())) {
@@ -427,7 +541,6 @@ const ChatunoTech = () => {
         }
       }
       
-      // פילטר לפי קבוצה
       if (filters.group) {
         const group = details['קבוצה'] || details['group'] || details['קטגוריה'] || '';
         if (!group.toLowerCase().includes(filters.group.toLowerCase())) {
@@ -435,7 +548,6 @@ const ChatunoTech = () => {
         }
       }
       
-      // פילטר לפי חיפוש כללי
       if (filters.searchTerm) {
         const searchLower = filters.searchTerm.toLowerCase();
         const guestName = result.guest.toLowerCase();
@@ -460,6 +572,40 @@ const ChatunoTech = () => {
     return Array.from(values);
   };
 
+  // Helper function to get relevant guest details
+  const getRelevantGuestDetails = (guestDetails) => {
+    const relevantDetails = {};
+    
+    // Look for side information
+    const sideKeys = ['צד', 'side', 'חתן', 'כלה', 'groom', 'bride'];
+    for (const key of sideKeys) {
+      if (guestDetails[key]) {
+        relevantDetails['צד'] = guestDetails[key];
+        break;
+      }
+    }
+    
+    // Look for group information
+    const groupKeys = ['קבוצה', 'group', 'קטגוריה', 'category', 'סוג', 'type', 'יחס', 'relation'];
+    for (const key of groupKeys) {
+      if (guestDetails[key]) {
+        relevantDetails['קבוצה'] = guestDetails[key];
+        break;
+      }
+    }
+    
+    // Look for quantity
+    const quantityKeys = ['כמות', 'quantity', 'מספר מוזמנים', 'אורחים'];
+    for (const key of quantityKeys) {
+      if (guestDetails[key]) {
+        relevantDetails['כמות'] = guestDetails[key];
+        break;
+      }
+    }
+    
+    return relevantDetails;
+  };
+
   return (
     <div>
       <style>{`
@@ -471,6 +617,7 @@ const ChatunoTech = () => {
           --dark-text: #264653;
           --white: #ffffff;
           --light-gray: #f8f9fa;
+          --success-green: #28a745;
         }
 
         .app-container {
@@ -497,7 +644,7 @@ const ChatunoTech = () => {
           box-shadow: 0 20px 60px rgba(0,0,0,0.15);
           padding: 40px;
           width: 100%;
-          max-width: 800px;
+          max-width: 1200px;
           min-width: 320px;
           position: relative;
           overflow: hidden;
@@ -514,6 +661,70 @@ const ChatunoTech = () => {
           right: 0;
           height: 5px;
           background: linear-gradient(90deg, var(--orange-red), var(--orange-gold), var(--warm-yellow), var(--teal-green));
+        }
+
+        .matching-layout {
+          display: flex;
+          gap: 20px;
+          align-items: flex-start;
+        }
+
+        .main-content {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .sidebar {
+          width: 280px;
+          background: var(--light-gray);
+          border-radius: 15px;
+          padding: 20px;
+          border: 2px solid #e1e8ed;
+          position: sticky;
+          top: 20px;
+          max-height: calc(90vh - 40px);
+          overflow-y: auto;
+        }
+
+        .sidebar-section {
+          margin-bottom: 25px;
+        }
+
+        .sidebar-title {
+          font-size: 1.1rem;
+          font-weight: 700;
+          color: var(--dark-text);
+          margin-bottom: 15px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .filter-item {
+          margin-bottom: 15px;
+        }
+
+        .filter-item label {
+          display: block;
+          margin-bottom: 5px;
+          color: var(--dark-text);
+          font-weight: 600;
+          font-size: 0.9rem;
+        }
+
+        .filter-item select, .filter-item input {
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          font-size: 0.9rem;
+          box-sizing: border-box;
+        }
+
+        .filter-item select:focus, .filter-item input:focus {
+          outline: none;
+          border-color: var(--teal-green);
+          box-shadow: 0 0 0 2px rgba(42, 157, 143, 0.1);
         }
 
         .btn {
@@ -554,12 +765,22 @@ const ChatunoTech = () => {
           box-shadow: 0 5px 15px rgba(42, 157, 143, 0.2);
         }
 
-        .btn-guide {
-          background: var(--light-gray);
-          color: var(--dark-text);
-          border: 2px solid #ddd;
+        .btn-small {
+          padding: 8px 16px;
           font-size: 0.9rem;
-          padding: 10px 20px;
+          margin: 5px;
+        }
+
+        .btn-sidebar {
+          width: 100%;
+          padding: 12px 20px;
+          margin: 8px 0;
+          font-size: 0.95rem;
+        }
+
+        .btn-contacts {
+          background: linear-gradient(135deg, #25D366, #128C7E);
+          color: white;
         }
 
         .status-message {
@@ -658,14 +879,14 @@ const ChatunoTech = () => {
 
         .guest-details {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 15px;
+          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          gap: 12px;
           margin-top: 15px;
         }
 
         .detail-item {
           background: rgba(255, 255, 255, 0.15);
-          padding: 12px;
+          padding: 10px;
           border-radius: 10px;
           text-align: center;
         }
@@ -673,51 +894,106 @@ const ChatunoTech = () => {
         .detail-label {
           font-size: 0.8rem;
           opacity: 0.9;
-          margin-bottom: 5px;
+          margin-bottom: 4px;
         }
 
         .detail-value {
           font-weight: 600;
-          font-size: 0.95rem;
+          font-size: 0.9rem;
         }
 
         .candidate-card {
           background: var(--light-gray);
           border-radius: 12px;
-          padding: 15px;
-          margin: 10px 0;
+          padding: 12px 16px;
+          margin: 8px 0;
           border: 2px solid #e1e8ed;
           transition: all 0.3s ease;
+          cursor: pointer;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
         }
 
         .candidate-card:hover {
           border-color: var(--teal-green);
-          transform: translateY(-2px);
-          box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
 
-        .score-badge {
-          display: inline-block;
-          padding: 4px 12px;
-          border-radius: 20px;
-          font-size: 0.8rem;
-          font-weight: bold;
-          margin-left: 10px;
+        .candidate-card.selected {
+          border-color: var(--success-green);
+          background: rgba(40, 167, 69, 0.1);
+          box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.2);
         }
 
-        .score-high {
-          background: rgba(42, 157, 143, 0.2);
+        .candidate-info {
+          flex: 1;
+        }
+
+        .candidate-name {
+          font-weight: 600;
+          color: var(--dark-text);
+          font-size: 0.95rem;
+          margin-bottom: 2px;
+        }
+
+        .candidate-phone {
+          font-size: 0.85rem;
+          color: #666;
+          direction: ltr;
+          text-align: right;
+        }
+
+        .candidate-score {
           color: var(--teal-green);
+          font-weight: 600;
+          font-size: 0.9rem;
+          min-width: 50px;
+          text-align: center;
         }
 
-        .score-medium {
-          background: rgba(233, 196, 106, 0.2);
-          color: #d68910;
+        .add-contact-section {
+          background: #fff3cd;
+          border-radius: 12px;
+          padding: 15px;
+          margin: 15px 0;
+          border: 2px solid #ffeaa7;
         }
 
-        .score-low {
-          background: rgba(231, 111, 81, 0.2);
-          color: var(--orange-red);
+        .add-contact-option {
+          background: var(--light-gray);
+          border-radius: 10px;
+          padding: 12px;
+          margin: 8px 0;
+          border: 2px dashed #ccc;
+          text-align: center;
+          cursor: pointer;
+          transition: all 0.3s ease;
+        }
+
+        .add-contact-option:hover {
+          border-color: var(--teal-green);
+          background: rgba(42, 157, 143, 0.05);
+        }
+
+        .add-contact-inputs {
+          margin-top: 15px;
+          padding-top: 15px;
+          border-top: 1px solid #ddd;
+        }
+
+        .add-contact-inputs input {
+          margin: 8px 0;
+          padding: 10px 15px;
+          font-size: 0.9rem;
+        }
+
+        .add-contact-buttons {
+          display: flex;
+          gap: 10px;
+          justify-content: center;
+          margin-top: 10px;
         }
 
         .loading-spinner {
@@ -787,33 +1063,6 @@ const ChatunoTech = () => {
         @keyframes slideIn {
           from { transform: translateY(-50px) scale(0.9); opacity: 0; }
           to { transform: translateY(0) scale(1); opacity: 1; }
-        }
-
-        .filters-container {
-          background: var(--light-gray);
-          border-radius: 15px;
-          padding: 20px;
-          margin: 20px 0;
-          border: 2px solid #e1e8ed;
-        }
-
-        .filters-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 15px;
-          margin-bottom: 15px;
-        }
-
-        .filter-item {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .filter-item select, .filter-item input {
-          margin: 5px 0 0 0;
-          padding: 10px;
-          border-radius: 8px;
-          border: 1px solid #ddd;
         }
 
         .progress-indicator {
@@ -890,6 +1139,19 @@ const ChatunoTech = () => {
           text-decoration: underline;
         }
 
+        @media (max-width: 1024px) {
+          .matching-layout {
+            flex-direction: column;
+          }
+          
+          .sidebar {
+            width: 100%;
+            position: static;
+            order: -1;
+            max-height: none;
+          }
+        }
+
         @media (max-width: 768px) {
           .content-card {
             padding: 20px;
@@ -902,10 +1164,6 @@ const ChatunoTech = () => {
           }
           
           .guest-details {
-            grid-template-columns: 1fr;
-          }
-          
-          .filters-grid {
             grid-template-columns: 1fr;
           }
         }
@@ -1023,14 +1281,33 @@ const ChatunoTech = () => {
               {/* קובץ אנשי קשר */}
               <div style={{ marginBottom: '30px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                  <label>📞 קובץ אנשי קשר (CSV/Excel)</label>
+                  <label>📞 אנשי קשר</label>
                   <button 
                     className="btn btn-guide" 
                     onClick={() => setShowContactsGuide(true)}
                     type="button"
+                    style={{ padding: '8px 16px', fontSize: '0.8rem' }}
                   >
                     📋 איך להוציא אנשי קשר?
                   </button>
+                </div>
+
+                {/* אפשרות גישה למובייל */}
+                {supportsMobileContacts && (
+                  <div style={{ marginBottom: '15px' }}>
+                    <button 
+                      className="btn btn-contacts btn-small"
+                      onClick={requestMobileContacts}
+                      disabled={isLoading}
+                      style={{ width: '100%' }}
+                    >
+                      📱 גישה לאנשי קשר בטלפון
+                    </button>
+                  </div>
+                )}
+
+                <div style={{ textAlign: 'center', margin: '10px 0', color: '#666' }}>
+                  {supportsMobileContacts ? 'או' : ''}
                 </div>
 
                 <input 
@@ -1042,7 +1319,9 @@ const ChatunoTech = () => {
                 />
                 {uploadedFiles.contacts && (
                   <div className="status-message status-success">
-                    ✅ קובץ אנשי קשר נטען
+                    ✅ {contactsSource === 'mobile' ? 
+                        `אנשי קשר נטענו מהטלפון (${mobileContacts.length})` : 
+                        'קובץ אנשי קשר נטען'}
                   </div>
                 )}
               </div>
@@ -1115,23 +1394,217 @@ const ChatunoTech = () => {
 
           {/* --- מסך התאמות --- */}
           {currentScreen === 'matchingScreen' && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div className="matching-layout">
+              <div className="main-content">
                 <h2>🎯 התאמות שנמצאו</h2>
-                <button 
-                  className="btn btn-secondary" 
-                  onClick={exportResults}
-                  disabled={isLoading}
-                  style={{ padding: '10px 20px', margin: '0' }}
-                >
-                  {isLoading ? '⏳ מייצא...' : '📥 ייצא לExcel'}
-                </button>
+
+                {matchingResults.length > 0 && (
+                  <div>
+                    {/* פרטי מוזמן נוכחי */}
+                    <div className="guest-card">
+                      <div className="guest-header">
+                        <h3 className="guest-name">
+                          👰 {matchingResults[currentGuestIndex].guest}
+                        </h3>
+                        <div className="guest-progress">
+                          מוזמן {currentGuestIndex + 1} מתוך {matchingResults.length}
+                          {!currentUser.isPro && (
+                            <span style={{ marginRight: '10px' }}>
+                              • נותרו {getRemainingDailyLimit()} התאמות
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* פרטים רלוונטיים על המוזמן */}
+                      <div className="guest-details">
+                        {(() => {
+                          const relevantDetails = getRelevantGuestDetails(matchingResults[currentGuestIndex].guest_details || {});
+                          return Object.entries(relevantDetails).map(([key, value]) => (
+                            <div key={key} className="detail-item">
+                              <div className="detail-label">{key}</div>
+                              <div className="detail-value">{value}</div>
+                            </div>
+                          ));
+                        })()}
+                        <div className="detail-item">
+                          <div className="detail-label">ציון התאמה מקסימלי</div>
+                          <div className="detail-value">
+                            {matchingResults[currentGuestIndex].best_score}%
+                          </div>
+                        </div>
+                        <div className="detail-item">
+                          <div className="detail-label">מועמדים</div>
+                          <div className="detail-value">
+                            {matchingResults[currentGuestIndex].candidates?.length || 0}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* מועמדים */}
+                    {matchingResults[currentGuestIndex].candidates?.length > 0 ? (
+                      matchingResults[currentGuestIndex].candidates.map((candidate, index) => (
+                        <div 
+                          key={index} 
+                          className={`candidate-card ${
+                            selectedContacts[matchingResults[currentGuestIndex].guest]?.name === candidate.name &&
+                            selectedContacts[matchingResults[currentGuestIndex].guest]?.phone === candidate.phone ? 
+                            'selected' : ''
+                          }`}
+                          onClick={() => selectCandidate(candidate)}
+                        >
+                          <div className="candidate-info">
+                            <div className="candidate-name">{candidate.name}</div>
+                            <div className="candidate-phone">{candidate.phone}</div>
+                          </div>
+                          <div className="candidate-score">
+                            {candidate.score}%
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="status-message status-warning">
+                        ⚠️ לא נמצאו התאמות למוזמן זה
+                      </div>
+                    )}
+                    
+                    {/* כפתור הוספת איש קשר */}
+                    <div className="add-contact-option" onClick={() => setShowAddContact(!showAddContact)}>
+                      <strong>➕ הוסף איש קשר אחר</strong>
+                      <br />
+                      <small>חפש באנשי קשר או הוסף מספר ידנית</small>
+                    </div>
+
+                    {/* אפשרויות הוספה */}
+                    {showAddContact && (
+                      <div className="add-contact-section">
+                        <div className="add-contact-inputs">
+                          <div>
+                            <label style={{ fontSize: '0.9rem', marginBottom: '5px' }}>🔍 חפש באנשי קשר</label>
+                            <input
+                              type="text"
+                              placeholder="הזן שם לחיפוש..."
+                              value={searchInContacts}
+                              onChange={(e) => setSearchInContacts(e.target.value)}
+                              style={{ margin: '5px 0', padding: '10px', fontSize: '0.9rem' }}
+                            />
+                          </div>
+                          
+                          <div>
+                            <label style={{ fontSize: '0.9rem', marginBottom: '5px' }}>📞 או הוסף מספר ידנית</label>
+                            <input
+                              type="tel"
+                              placeholder="05X-XXXXXXX"
+                              value={manualPhone}
+                              onChange={(e) => setManualPhone(e.target.value)}
+                              style={{ margin: '5px 0', padding: '10px', fontSize: '0.9rem' }}
+                            />
+                          </div>
+                          
+                          <div className="add-contact-buttons">
+                            <button 
+                              className="btn btn-secondary btn-small"
+                              onClick={searchAndSelectContact}
+                              disabled={!searchInContacts.trim()}
+                            >
+                              🔍 חפש
+                            </button>
+                            <button 
+                              className="btn btn-secondary btn-small"
+                              onClick={addManualContact}
+                              disabled={!manualPhone.trim()}
+                            >
+                              📞 הוסף
+                            </button>
+                            <button 
+                              className="btn btn-secondary btn-small"
+                              onClick={() => setShowAddContact(false)}
+                            >
+                              ✕ סגור
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* כפתור "לא נמצא" */}
+                    <div 
+                      className={`candidate-card ${
+                        selectedContacts[matchingResults[currentGuestIndex].guest]?.isNotFound ? 'selected' : ''
+                      }`}
+                      style={{ border: '2px dashed #ccc' }}
+                      onClick={() => selectCandidate({ 
+                        name: 'לא נמצא', 
+                        phone: '', 
+                        score: 0, 
+                        reason: 'לא נמצא',
+                        isNotFound: true 
+                      })}
+                    >
+                      <div className="candidate-info">
+                        <div className="candidate-name">❌ לא נמצא איש קשר מתאים</div>
+                        <div className="candidate-phone">המוזמן יישאר ללא מספר טלפון</div>
+                      </div>
+                    </div>
+                    
+                    {/* כפתורי ניווט */}
+                    <div style={{ marginTop: '30px', display: 'flex', justifyContent: 'space-between' }}>
+                      <button 
+                        className="btn btn-secondary" 
+                        onClick={previousGuest}
+                        disabled={currentGuestIndex === 0}
+                      >
+                        ⬅️ קודם
+                      </button>
+                      <button 
+                        className="btn btn-primary" 
+                        onClick={nextGuest}
+                        disabled={!selectedContacts[matchingResults[currentGuestIndex].guest]}
+                      >
+                        {currentGuestIndex === matchingResults.length - 1 ? '✅ סיים' : '➡️ הבא'}
+                      </button>
+                    </div>
+
+                    {/* בחירה נוכחית */}
+                    {selectedContacts[matchingResults[currentGuestIndex].guest] && (
+                      <div style={{ 
+                        marginTop: '20px', 
+                        padding: '15px', 
+                        background: 'rgba(40, 167, 69, 0.1)', 
+                        borderRadius: '10px',
+                        border: '2px solid rgba(40, 167, 69, 0.2)'
+                      }}>
+                        <strong>✅ נבחר: </strong>
+                        {selectedContacts[matchingResults[currentGuestIndex].guest].name}
+                        {selectedContacts[matchingResults[currentGuestIndex].guest].phone && 
+                          ` - ${selectedContacts[matchingResults[currentGuestIndex].guest].phone}`
+                        }
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* פילטרים */}
-              <div className="filters-container">
-                <h4>🔍 פילטרים</h4>
-                <div className="filters-grid">
+              {/* סרגל צד עם פילטרים והורדה */}
+              <div className="sidebar">
+                <div className="sidebar-section">
+                  <div className="sidebar-title">📥 ייצוא קובץ</div>
+                  <button 
+                    className="btn btn-primary btn-sidebar"
+                    onClick={exportResults}
+                    disabled={isLoading || currentGuestIndex === 0}
+                  >
+                    {isLoading ? '⏳ מייצא...' : '📥 הורד Excel'}
+                  </button>
+                  <div style={{ fontSize: '0.8rem', color: '#666', textAlign: 'center', marginTop: '8px' }}>
+                    {currentGuestIndex + 1} מוזמנים מעובדים
+                  </div>
+                </div>
+
+                <div className="sidebar-section">
+                  <div className="sidebar-title">🔍 פילטרים</div>
+                  
                   <div className="filter-item">
                     <label>צד:</label>
                     <select 
@@ -1144,6 +1617,7 @@ const ChatunoTech = () => {
                       ))}
                     </select>
                   </div>
+                  
                   <div className="filter-item">
                     <label>קבוצה:</label>
                     <select 
@@ -1156,6 +1630,7 @@ const ChatunoTech = () => {
                       ))}
                     </select>
                   </div>
+                  
                   <div className="filter-item">
                     <label>חיפוש:</label>
                     <input 
@@ -1166,148 +1641,38 @@ const ChatunoTech = () => {
                     />
                   </div>
                 </div>
-              </div>
 
-              {matchingResults.length > 0 && (
-                <div>
-                  {/* פרטי מוזמן נוכחי */}
-                  <div className="guest-card">
-                    <div className="guest-header">
-                      <h3 className="guest-name">
-                        👰 {matchingResults[currentGuestIndex].guest}
-                      </h3>
-                      <div className="guest-progress">
-                        מוזמן {currentGuestIndex + 1} מתוך {matchingResults.length}
-                        {!currentUser.isPro && (
-                          <span style={{ marginRight: '10px' }}>
-                            • נותרו {getRemainingDailyLimit()} התאמות
-                          </span>
-                        )}
+                {!currentUser.isPro && (
+                  <div className="sidebar-section">
+                    <div className="sidebar-title">💎 שדרוג</div>
+                    <div style={{ 
+                      background: 'linear-gradient(135deg, #667eea, #764ba2)', 
+                      color: 'white', 
+                      padding: '15px', 
+                      borderRadius: '10px',
+                      textAlign: 'center',
+                      fontSize: '0.9rem'
+                    }}>
+                      <div style={{ marginBottom: '10px' }}>
+                        <strong>הגעת ל-{currentUser.dailyMatchesUsed}/{DAILY_LIMIT}</strong>
                       </div>
-                    </div>
-                    
-                    {/* פרטים נוספים על המוזמן */}
-                    <div className="guest-details">
-                      {Object.entries(matchingResults[currentGuestIndex].guest_details || {}).map(([key, value]) => {
-                        if (key === 'שם מלא' || key === 'norm_name' || !value) return null;
-                        return (
-                          <div key={key} className="detail-item">
-                            <div className="detail-label">{key}</div>
-                            <div className="detail-value">{value}</div>
-                          </div>
-                        );
-                      })}
-                      <div className="detail-item">
-                        <div className="detail-label">ציון התאמה מקסימלי</div>
-                        <div className="detail-value">
-                          {matchingResults[currentGuestIndex].best_score}%
-                        </div>
-                      </div>
-                      <div className="detail-item">
-                        <div className="detail-label">מועמדים</div>
-                        <div className="detail-value">
-                          {matchingResults[currentGuestIndex].candidates?.length || 0}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* מועמדים */}
-                  {matchingResults[currentGuestIndex].candidates?.length > 0 ? (
-                    matchingResults[currentGuestIndex].candidates.map((candidate, index) => (
-                      <div key={index} className="candidate-card">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            <strong>{candidate.name}</strong>
-                            <br />
-                            <small style={{ color: '#666' }}>📱 {candidate.phone}</small>
-                            <br />
-                            <small style={{ color: '#888' }}>{candidate.reason}</small>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span className={`score-badge ${
-                              candidate.score >= 80 ? 'score-high' : 
-                              candidate.score >= 60 ? 'score-medium' : 'score-low'
-                            }`}>
-                              {candidate.score}%
-                            </span>
-                            <button 
-                              className="btn btn-secondary" 
-                              onClick={() => selectCandidate(candidate)}
-                              style={{ padding: '8px 16px', margin: '0' }}
-                            >
-                              ✅ בחר
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="status-message status-warning">
-                      ⚠️ לא נמצאו התאמות למוזמן זה
-                    </div>
-                  )}
-                  
-                  {/* כפתור "לא נמצא" */}
-                  <div className="candidate-card" style={{ border: '2px dashed #ccc' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <strong>❌ לא נמצא איש קשר מתאים</strong>
-                        <br />
-                        <small style={{ color: '#666' }}>המוזמן יישאר ללא מספר טלפון</small>
+                      <div style={{ fontSize: '0.8rem', marginBottom: '15px' }}>
+                        שדרג לפרימיום בלי הגבלות!
                       </div>
                       <button 
-                        className="btn btn-secondary" 
-                        onClick={() => selectCandidate({ 
-                          name: 'לא נמצא', 
-                          phone: '', 
-                          score: 0, 
-                          reason: 'לא נמצא',
-                          isNotFound: true 
-                        })}
-                        style={{ padding: '8px 16px', margin: '0' }}
+                        className="btn btn-primary btn-sidebar"
+                        onClick={() => showScreen('paymentScreen')}
+                        style={{ 
+                          background: 'rgba(255,255,255,0.2)', 
+                          border: '1px solid rgba(255,255,255,0.3)' 
+                        }}
                       >
-                        ✅ לא נמצא
+                        💎 שדרג עכשיו
                       </button>
                     </div>
                   </div>
-                  
-                  {/* כפתורי ניווט */}
-                  <div style={{ marginTop: '30px', display: 'flex', justifyContent: 'space-between' }}>
-                    <button 
-                      className="btn btn-secondary" 
-                      onClick={previousGuest}
-                      disabled={currentGuestIndex === 0}
-                    >
-                      ⬅️ קודם
-                    </button>
-                    <button 
-                      className="btn btn-primary" 
-                      onClick={nextGuest}
-                      disabled={!selectedContacts[matchingResults[currentGuestIndex].guest]}
-                    >
-                      {currentGuestIndex === matchingResults.length - 1 ? '✅ סיים' : '➡️ הבא'}
-                    </button>
-                  </div>
-
-                  {/* בחירה נוכחית */}
-                  {selectedContacts[matchingResults[currentGuestIndex].guest] && (
-                    <div style={{ 
-                      marginTop: '20px', 
-                      padding: '15px', 
-                      background: 'rgba(40, 167, 69, 0.1)', 
-                      borderRadius: '10px',
-                      border: '2px solid rgba(40, 167, 69, 0.2)'
-                    }}>
-                      <strong>✅ נבחר: </strong>
-                      {selectedContacts[matchingResults[currentGuestIndex].guest].name}
-                      {selectedContacts[matchingResults[currentGuestIndex].guest].phone && 
-                        ` - ${selectedContacts[matchingResults[currentGuestIndex].guest].phone}`
-                      }
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 

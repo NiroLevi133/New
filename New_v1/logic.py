@@ -1,18 +1,20 @@
-# logic.py – מערכת התאמת מוזמנים מתקדמת
-"""שדרוג אלגוריתם התאמת השמות (גרסה מאוחדת 2025‑08‑03)
+# logic.py – מערכת התאמת מוזמנים מתקדמת (מעודכן)
+"""שדרוג אלגוריתם התאמת השמות עם תמיכה במובייל ופיצ'רים חדשים
 ----------------------------------------------------------------
 * זיהוי אוטומטי וגמיש של עמודות
 * תמיכה בפורמטים שונים של קבצי Excel/CSV
+* תמיכה באנשי קשר ממובייל
 * אלגוריתם התאמה מתקדם עם fuzzy matching
 * נורמליזציה משופרת של שמות
 * מערכת הרשאות עם Google Sheets וגיבוי מקומי
 * טיפול בשגיאות encoding ופורמטים שונים
 * תמיכה בשדות דינמיים במוזמנים
+* זיהוי חכם של שדות רלוונטיים
 """
 
 from __future__ import annotations
 
-import os, re, logging
+import os, re, logging, json
 from io import BytesIO
 from typing import List, Set, Dict, Optional
 
@@ -123,7 +125,7 @@ def format_phone(ph: str) -> str:
         d = "0" + d[3:]
     return f"{d[:3]}-{d[3:]}" if len(d) == 10 else d
 
-# ───────── זיהוי אוטומטי של עמודות ─────────
+# ───────── זיהוי אוטומטי של עמודות עם שיפורים ─────────
 def detect_column_type(col_name: str, sample_data: pd.Series) -> str:
     """זיהוי אוטומטי של סוג העמודה לפי שם ותוכן"""
     col_lower = str(col_name).lower().strip()
@@ -162,7 +164,7 @@ def detect_column_type(col_name: str, sample_data: pd.Series) -> str:
         return 'side'
     
     # עמודת קבוצה
-    group_keywords = ['קבוצה', 'group', 'סוג', 'type', 'קטגוריה', 'category']
+    group_keywords = ['קבוצה', 'group', 'סוג', 'type', 'קטגוריה', 'category', 'יחס', 'relation', 'משפחה', 'חברים', 'עבודה']
     if any(keyword in col_lower for keyword in group_keywords):
         return 'group'
     
@@ -178,9 +180,31 @@ def smart_column_mapping(df: pd.DataFrame) -> Dict[str, str]:
     
     return mapping
 
-# ───────── טעינת קבצים גמישה ─────────
+def identify_relevant_fields(df: pd.DataFrame) -> Dict[str, str]:
+    """זיהוי השדות הרלוונטיים ביותר לתצוגה"""
+    column_mapping = smart_column_mapping(df)
+    relevant_fields = {}
+    
+    # חפש צד
+    side_cols = [col for col, type_val in column_mapping.items() if type_val == 'side']
+    if side_cols:
+        relevant_fields['צד'] = side_cols[0]
+    
+    # חפש קבוצה
+    group_cols = [col for col, type_val in column_mapping.items() if type_val == 'group']
+    if group_cols:
+        relevant_fields['קבוצה'] = group_cols[0]
+    
+    # חפש כמות
+    count_cols = [col for col, type_val in column_mapping.items() if type_val == 'count']
+    if count_cols:
+        relevant_fields['כמות'] = count_cols[0]
+    
+    return relevant_fields
+
+# ───────── טעינת קבצים גמישה עם שיפורים ─────────
 def load_excel_flexible(file) -> pd.DataFrame:
-    """טעינת קובץ עם זיהוי אוטומטי של עמודות וטיפול בפורמט אנשי קשר קבוע"""
+    """טעינת קובץ עם זיהוי אוטומטי של עמודות וטיפול בפורמטים שונים"""
     try:
         print(f"📁 Attempting to read file: {getattr(file, 'filename', 'unknown')}")
         
@@ -218,6 +242,7 @@ def load_excel_flexible(file) -> pd.DataFrame:
             print("👰 Detected guests file - using flexible detection")
             # זיהוי אוטומטי לקובץ מוזמנים
             column_mapping = smart_column_mapping(df)
+            relevant_fields = identify_relevant_fields(df)
             
             # מציאת עמודת שם
             name_cols = [col for col, type_val in column_mapping.items() if type_val == 'name']
@@ -234,11 +259,10 @@ def load_excel_flexible(file) -> pd.DataFrame:
             else:
                 standard_df[PHONE_COL] = ""
             
-            # שמירה של כל העמודות המקוריות לתצוגה מפורטת
-            for col in df.columns:
-                if col not in [best_name_col if name_cols else df.columns[0]]:
-                    # שמור את העמודה המקורית
-                    standard_df[col] = df[col].astype(str).fillna("")
+            # שמירה של שדות רלוונטיים
+            for display_name, col_name in relevant_fields.items():
+                if col_name in df.columns:
+                    standard_df[display_name] = df[col_name].astype(str).fillna("")
         
         # שדות נוספים
         if COUNT_COL not in standard_df.columns:
@@ -264,6 +288,47 @@ def load_excel_flexible(file) -> pd.DataFrame:
         print(f"❌ Error: {e}")
         raise Exception(f"לא ניתן לקרוא את הקובץ: {str(e)}")
 
+def load_mobile_contacts(contacts_data: List[Dict]) -> pd.DataFrame:
+    """טעינת אנשי קשר ממובייל"""
+    try:
+        print(f"📱 Loading mobile contacts: {len(contacts_data)} contacts")
+        
+        # יצירת DataFrame מאנשי הקשר
+        df = pd.DataFrame(contacts_data)
+        
+        # וידוא שיש עמודות name ו-phone
+        if 'name' not in df.columns or 'phone' not in df.columns:
+            raise Exception("פורמט אנשי קשר לא תקין - חסרות עמודות name או phone")
+        
+        # יצירת עמודות סטנדרטיות
+        standard_df = pd.DataFrame()
+        standard_df[NAME_COL] = df['name'].astype(str).str.strip()
+        standard_df[PHONE_COL] = df['phone'].astype(str).str.strip()
+        
+        # שדות נוספים
+        standard_df[COUNT_COL] = 1
+        standard_df[SIDE_COL] = ""
+        standard_df[GROUP_COL] = ""
+        
+        # נירמול שמות
+        standard_df["norm_name"] = standard_df[NAME_COL].map(normalize)
+        
+        # סינון רשומות ריקות
+        standard_df = standard_df[
+            (standard_df["norm_name"].str.strip() != "") & 
+            (standard_df[PHONE_COL].str.strip() != "")
+        ]
+        
+        if len(standard_df) == 0:
+            raise Exception("לא נמצאו אנשי קשר תקינים")
+        
+        print(f"✅ Mobile contacts processed! Final count: {len(standard_df)}")
+        return standard_df
+        
+    except Exception as e:
+        print(f"❌ Error processing mobile contacts: {e}")
+        raise Exception(f"לא ניתן לעבד את אנשי הקשר: {str(e)}")
+
 def create_contacts_template() -> pd.DataFrame:
     """יוצר קובץ דוגמה לאנשי קשר"""
     template = pd.DataFrame({
@@ -279,6 +344,21 @@ def create_contacts_template() -> pd.DataFrame:
             '0521111111',
             '0502222222'
         ]
+    })
+    return template
+
+def create_guests_template() -> pd.DataFrame:
+    """יוצר קובץ דוגמה למוזמנים"""
+    template = pd.DataFrame({
+        'שם מלא': [
+            'ישראל כהן',
+            'שרה לוי', 
+            'דוד אברהם',
+            'רחל גולד'
+        ],
+        'כמות מוזמנים': [2, 1, 3, 2],
+        'צד': ['חתן', 'כלה', 'חתן', 'כלה'],
+        'קבוצה': ['משפחה', 'חברות', 'עבודה', 'משפחה']
     })
     return template
 
@@ -494,3 +574,66 @@ def compute_best_scores(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> p
     return guests_df["norm_name"].apply(
         lambda n: int(contacts_df["norm_name"].apply(lambda c: full_score(n, c)).max()) if n else 0
     )
+
+def extract_relevant_guest_details(guest_row: pd.Series) -> Dict[str, str]:
+    """מחלץ רק הפרטים הרלוונטיים של המוזמן לתצוגה"""
+    relevant_details = {}
+    
+    # רשימת שדות פוטנציאליים לצד
+    side_fields = ['צד', 'side', 'חתן', 'כלה', 'groom', 'bride']
+    for field in side_fields:
+        if field in guest_row.index and pd.notna(guest_row[field]) and str(guest_row[field]).strip():
+            relevant_details['צד'] = str(guest_row[field]).strip()
+            break
+    
+    # רשימת שדות פוטנציאליים לקבוצה
+    group_fields = ['קבוצה', 'group', 'קטגוריה', 'category', 'סוג', 'type', 'יחס', 'relation']
+    for field in group_fields:
+        if field in guest_row.index and pd.notna(guest_row[field]) and str(guest_row[field]).strip():
+            relevant_details['קבוצה'] = str(guest_row[field]).strip()
+            break
+    
+    # רשימת שדות פוטנציאליים לכמות
+    count_fields = ['כמות', 'quantity', 'מספר מוזמנים', 'אורחים', 'כמות מוזמנים']
+    for field in count_fields:
+        if field in guest_row.index and pd.notna(guest_row[field]) and str(guest_row[field]).strip():
+            relevant_details['כמות'] = str(guest_row[field]).strip()
+            break
+    
+    return relevant_details
+
+def process_matching_results(guests_df: pd.DataFrame, contacts_df: pd.DataFrame, contacts_source: str = 'file') -> List[Dict]:
+    """עיבוד מלא של תוצאות ההתאמה עם שיפורים"""
+    results = []
+    
+    for idx, (_, guest) in enumerate(guests_df.iterrows()):
+        guest_name = guest[NAME_COL]
+        guest_norm = guest["norm_name"]
+        
+        # חילוץ פרטים רלוונטיים בלבד
+        guest_details = extract_relevant_guest_details(guest)
+        guest_details[NAME_COL] = guest_name  # הוסף את השם
+        
+        # מציאת מועמדים
+        candidates = top_matches(guest_norm, contacts_df)
+        best_score = candidates["score"].max() if len(candidates) > 0 else 0
+        
+        # הכנת רשימת מועמדים
+        candidates_list = []
+        for _, candidate in candidates.iterrows():
+            candidates_list.append({
+                "name": candidate[NAME_COL],
+                "phone": format_phone(candidate[PHONE_COL]),
+                "score": int(candidate["score"]),
+                "reason": candidate.get("reason", "")
+            })
+        
+        results.append({
+            "index": idx,
+            "guest": guest_name,
+            "guest_details": guest_details,
+            "best_score": int(best_score),
+            "candidates": candidates_list
+        })
+    
+    return results
