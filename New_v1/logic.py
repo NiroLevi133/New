@@ -7,6 +7,7 @@
 * נורמליזציה משופרת של שמות
 * מערכת הרשאות עם Google Sheets וגיבוי מקומי
 * טיפול בשגיאות encoding ופורמטים שונים
+* תמיכה בשדות דינמיים במוזמנים
 """
 
 from __future__ import annotations
@@ -232,6 +233,12 @@ def load_excel_flexible(file) -> pd.DataFrame:
                 standard_df[PHONE_COL] = df[phone_cols[0]].astype(str).str.strip()
             else:
                 standard_df[PHONE_COL] = ""
+            
+            # שמירה של כל העמודות המקוריות לתצוגה מפורטת
+            for col in df.columns:
+                if col not in [best_name_col if name_cols else df.columns[0]]:
+                    # שמור את העמודה המקורית
+                    standard_df[col] = df[col].astype(str).fillna("")
         
         # שדות נוספים
         if COUNT_COL not in standard_df.columns:
@@ -405,13 +412,30 @@ def reason_for(g_norm: str, c_norm: str, score: int) -> str:
 
 def to_buf(df: pd.DataFrame) -> BytesIO:
     """ייצוא ל-Excel: מסיר עמודות פנימיות ומשאיר טלפון בסוף."""
-    export = df.drop(columns=["norm_name", "score", "best_score", NAME_COL], errors="ignore").copy()
-    original = [c for c in export.columns if c != PHONE_COL]
-    final = original + [PHONE_COL]
-    export = export.reindex(columns=final, fill_value="")
+    export = df.drop(columns=["norm_name", "score", "best_score"], errors="ignore").copy()
+    
+    # סדר עמודות: שם מלא ראשון, טלפון אחרון, השאר באמצע
+    columns_order = []
+    
+    # שם מלא ראשון
+    if NAME_COL in export.columns:
+        columns_order.append(NAME_COL)
+    
+    # כל השאר חוץ מטלפון
+    for col in export.columns:
+        if col not in [NAME_COL, PHONE_COL]:
+            columns_order.append(col)
+    
+    # טלפון אחרון
+    if PHONE_COL in export.columns:
+        columns_order.append(PHONE_COL)
+    
+    # סדר מחדש
+    export = export.reindex(columns=columns_order, fill_value="")
+    
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
-        export.to_excel(w, index=False, sheet_name="RSVP")
+        export.to_excel(w, index=False, sheet_name="תוצאות")
     buf.seek(0)
     return buf
 

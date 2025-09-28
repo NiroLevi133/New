@@ -3,21 +3,21 @@ import React, { useState, useEffect } from 'react';
 const ChatunoTech = () => {
   // Constants
   const API_BASE_URL = 'https://new-569016630628.europe-west1.run.app';
+  const DAILY_LIMIT = 30;
   
   // State
   const [currentScreen, setCurrentScreen] = useState('landingPage');
   const [currentUser, setCurrentUser] = useState({
     phone: '',
-    usedGuests: 0,
+    fullName: '',
+    dailyMatchesUsed: 0,
     isPro: false,
+    currentFileHash: '',
+    currentProgress: 0,
   });
   const [uploadedFiles, setUploadedFiles] = useState({
     guests: null,
     contacts: null,
-  });
-  const [parsedData, setParsedData] = useState({
-    guests: [],
-    contacts: [],
   });
   const [matchingResults, setMatchingResults] = useState([]);
   const [currentGuestIndex, setCurrentGuestIndex] = useState(0);
@@ -25,9 +25,16 @@ const ChatunoTech = () => {
   const [message, setMessage] = useState({ text: '', type: '' });
   const [showContactsGuide, setShowContactsGuide] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [fileHash, setFileHash] = useState('');
+  const [filters, setFilters] = useState({
+    side: '',
+    group: '',
+    searchTerm: ''
+  });
 
   // Auth
   const [phoneValue, setPhoneValue] = useState('');
+  const [fullNameValue, setFullNameValue] = useState('');
   const [codeValue, setCodeValue] = useState('');
   const [showCodeInput, setShowCodeInput] = useState(false);
 
@@ -36,12 +43,31 @@ const ChatunoTech = () => {
   const goToLanding = () => showScreen('landingPage');
   const startAuth = () => showScreen('authScreen');
 
+  // --- פונקציות עזר ---
+  const showMessage = (text, type) => {
+    setMessage({ text, type });
+    setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+  };
+
+  const getRemainingDailyLimit = () => {
+    return Math.max(0, DAILY_LIMIT - currentUser.dailyMatchesUsed);
+  };
+
+  const canProcessMoreGuests = () => {
+    return currentUser.isPro || getRemainingDailyLimit() > 0;
+  };
+
   // --- פונקציות אימות ---
   const sendCode = async () => {
-    console.log('sendCode called with:', phoneValue);
+    console.log('sendCode called with:', phoneValue, fullNameValue);
     
     if (!phoneValue || phoneValue.length < 10) {
       showMessage('אנא הזן מספר טלפון תקין', 'error');
+      return;
+    }
+
+    if (!fullNameValue || fullNameValue.trim().length < 2) {
+      showMessage('אנא הזן שם מלא', 'error');
       return;
     }
 
@@ -54,14 +80,21 @@ const ChatunoTech = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ phone: phoneValue })
+        body: JSON.stringify({ 
+          phone: phoneValue,
+          full_name: fullNameValue 
+        })
       });
 
       if (response.ok) {
         const data = await response.json();
         showMessage('📱 קוד נשלח בהצלחה לווטסאפ!', 'success');
         setShowCodeInput(true);
-        setCurrentUser((prev) => ({ ...prev, phone: phoneValue }));
+        setCurrentUser((prev) => ({ 
+          ...prev, 
+          phone: phoneValue,
+          fullName: fullNameValue 
+        }));
         
         // Debug - אפשר להסיר בפרודקשן
         console.log('Sent code:', data.code);
@@ -96,7 +129,8 @@ const ChatunoTech = () => {
         },
         body: JSON.stringify({ 
           phone: phoneValue, 
-          code: codeValue 
+          code: codeValue,
+          full_name: fullNameValue
         })
       });
 
@@ -104,26 +138,26 @@ const ChatunoTech = () => {
         const data = await response.json();
         
         if (data.status === 'success') {
-          // שמירה בגוגל שיטס
-          await logUserToGoogleSheets(phoneValue);
-          
           // עדכון משתמש
           setCurrentUser((prev) => ({ 
             ...prev, 
-            usedGuests: data.used_guests || 0,
-            isPro: data.is_premium || false
+            dailyMatchesUsed: data.daily_matches_used || 0,
+            isPro: data.is_premium || false,
+            currentFileHash: data.current_file_hash || '',
+            currentProgress: data.current_progress || 0
           }));
 
           showMessage('✅ אומת בהצלחה!', 'success');
           
           setTimeout(() => {
-            const usedGuests = data.used_guests || 0;
-            if (usedGuests >= 30 && !data.is_premium) {
-              showMessage(`השתמשת בכל המוזמנים החינמיים (${usedGuests}/30). זמן לשדרג!`, 'warning');
+            const remainingLimit = DAILY_LIMIT - (data.daily_matches_used || 0);
+            if (remainingLimit <= 0 && !data.is_premium) {
+              showMessage(`השתמשת בכל המגבלה היומית (${data.daily_matches_used}/${DAILY_LIMIT}). חזור מחר או שדרג לפרימיום!`, 'warning');
               setTimeout(() => setCurrentScreen('paymentScreen'), 2000);
             } else {
-              const remaining = 30 - usedGuests;
-              showMessage(`נותרו לך ${remaining} מוזמנים חינמיים`, 'success');
+              if (!data.is_premium) {
+                showMessage(`נותרו לך ${remainingLimit} התאמות היום`, 'success');
+              }
               setTimeout(() => setCurrentScreen('uploadScreen'), 2000);
             }
           }, 1000);
@@ -142,45 +176,26 @@ const ChatunoTech = () => {
     }
   };
 
-  const logUserToGoogleSheets = async (phone) => {
-    try {
-      await fetch(`${API_BASE_URL}/log-user`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ phone })
-      });
-    } catch (error) {
-      console.error('Error logging user:', error);
-    }
-  };
-
   // --- פונקציות עיבוד קבצים ---
   const handleFileUpload = async (event, type) => {
-  const file = event.target.files[0];
-  if (!file) return;
+    const file = event.target.files[0];
+    if (!file) return;
 
-  try {
-    showMessage(`טוען קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'}...`, 'success');
-    
-    // פשוט שמור את הקובץ, אל תנסה לקרוא אותו
-    setUploadedFiles(prev => ({
-      ...prev,
-      [type]: file
-    }));
-    
-    showMessage(`קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'} נטען בהצלחה`, 'success');
-    
-  } catch (error) {
-    console.error(`Error uploading ${type}:`, error);
-    showMessage(`שגיאה: ${error.message}`, 'error');
-  }
-};
-
-
-
-
+    try {
+      showMessage(`טוען קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'}...`, 'success');
+      
+      setUploadedFiles(prev => ({
+        ...prev,
+        [type]: file
+      }));
+      
+      showMessage(`קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'} נטען בהצלחה`, 'success');
+      
+    } catch (error) {
+      console.error(`Error uploading ${type}:`, error);
+      showMessage(`שגיאה: ${error.message}`, 'error');
+    }
+  };
 
   // --- מיזוג באמצעות Backend ---
   const startMerge = async () => {
@@ -196,6 +211,7 @@ const ChatunoTech = () => {
       const formData = new FormData();
       formData.append('guests_file', uploadedFiles.guests);
       formData.append('contacts_file', uploadedFiles.contacts);
+      formData.append('phone', currentUser.phone);
 
       const response = await fetch(`${API_BASE_URL}/merge-files`, {
         method: 'POST',
@@ -209,19 +225,31 @@ const ChatunoTech = () => {
 
       const data = await response.json();
       setMatchingResults(data.results);
-      setCurrentGuestIndex(0);
+      setFileHash(data.file_hash);
+      
+      // התחל מהמקום שעצר (אם המשיך מקובץ קיים)
+      const startIndex = data.start_index || 0;
+      setCurrentGuestIndex(startIndex);
 
       const totalGuests = data.results.length;
+      const remainingLimit = getRemainingDailyLimit();
 
-      if (totalGuests > 30 && !currentUser.isPro && currentUser.usedGuests === 0) {
-        showMessage(
-          `יש לך ${totalGuests} מוזמנים, אבל המגבלה החינמית היא 30. בואו נשדרג!`,
-          'warning'
-        );
-        setTimeout(() => showScreen('paymentScreen'), 3000);
-      } else {
-        showScreen('matchingScreen');
+      // הצג התרעה על מגבלה אם צריך
+      if (!currentUser.isPro) {
+        if (totalGuests > remainingLimit) {
+          showMessage(
+            `יש לך ${totalGuests} מוזמנים, אבל נותרו לך רק ${remainingLimit} התאמות היום. תוכל לעבד ${remainingLimit} מוזמנים או לשדרג לפרימיום.`,
+            'warning'
+          );
+        }
+        
+        if (remainingLimit <= 0) {
+          setTimeout(() => showScreen('paymentScreen'), 3000);
+          return;
+        }
       }
+
+      showScreen('matchingScreen');
     } catch (error) {
       console.error('Error in merge:', error);
       showMessage(`שגיאה במיזוג: ${error.message}`, 'error');
@@ -237,6 +265,7 @@ const ChatunoTech = () => {
     
     const message = `שלום! אני רוצה לשדרג לגרסה המלאה (39 ש״ח)
 📱 מספר טלפון: ${currentUser.phone}
+👤 שם: ${currentUser.fullName}
 📊 כמות מוזמנים: ${matchingResults.length}
 🔍 ID בקשה: ${Date.now()}
     
@@ -276,18 +305,8 @@ const ChatunoTech = () => {
   };
 
   const continueFree = () => {
-    showMessage('אוקיי, נמשיך עם המגבלה החינמית (30 מוזמנים)', 'warning');
-    
-    const limitedResults = matchingResults.slice(0, 30);
-    setMatchingResults(limitedResults);
-    
+    showMessage('אוקיי, נמשיך עם המגבלה היומית', 'warning');
     setTimeout(() => showScreen('matchingScreen'), 1500);
-  };
-
-  // --- הודעות ---
-  const showMessage = (text, type) => {
-    setMessage({ text, type });
-    setTimeout(() => setMessage({ text: '', type: '' }), 5000);
   };
 
   // --- התאמות ---
@@ -299,12 +318,48 @@ const ChatunoTech = () => {
     }));
   };
 
-  const nextGuest = () => {
+  const nextGuest = async () => {
+    const remainingLimit = getRemainingDailyLimit();
+    const processedCount = currentGuestIndex + 1;
+    
+    // עדכן התקדמות במסד הנתונים
+    if (currentUser.phone) {
+      try {
+        await fetch(`${API_BASE_URL}/update-match-count`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            phone: currentUser.phone,
+            matches_used: currentUser.isPro ? 0 : Math.min(processedCount, currentUser.dailyMatchesUsed + 1),
+            progress: processedCount
+          })
+        });
+      } catch (error) {
+        console.error('Error updating progress:', error);
+      }
+    }
+
     if (currentGuestIndex < matchingResults.length - 1) {
+      // בדוק מגבלה יומית
+      if (!currentUser.isPro && processedCount >= remainingLimit + currentUser.dailyMatchesUsed) {
+        showMessage(`הגעת למגבלה היומית (${DAILY_LIMIT} התאמות). חזור מחר או שדרג לפרימיום!`, 'warning');
+        setTimeout(() => showScreen('paymentScreen'), 2000);
+        return;
+      }
+      
       setCurrentGuestIndex((prev) => prev + 1);
+      
+      // עדכן מונה השימושים המקומי
+      if (!currentUser.isPro) {
+        setCurrentUser(prev => ({
+          ...prev,
+          dailyMatchesUsed: Math.min(prev.dailyMatchesUsed + 1, DAILY_LIMIT)
+        }));
+      }
     } else {
-      // Save final results
-      console.log('Final selections:', selectedContacts);
+      // סיום - הצג סיכום
       showScreen('successScreen');
     }
   };
@@ -313,6 +368,96 @@ const ChatunoTech = () => {
     if (currentGuestIndex > 0) {
       setCurrentGuestIndex((prev) => prev - 1);
     }
+  };
+
+  // --- ייצוא לקובץ ---
+  const exportResults = async () => {
+    try {
+      setIsLoading(true);
+      showMessage('📄 מכין קובץ לייצוא...', 'success');
+
+      const response = await fetch(`${API_BASE_URL}/export-results`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          results: matchingResults,
+          selected_contacts: selectedContacts
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('שגיאה בייצוא הקובץ');
+      }
+
+      // הורד את הקובץ
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `guests_with_contacts_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      showMessage('✅ קובץ יוצא בהצלחה!', 'success');
+    } catch (error) {
+      console.error('Export error:', error);
+      showMessage('❌ שגיאה בייצוא הקובץ', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- פילטרים ---
+  const getFilteredResults = () => {
+    if (!matchingResults) return [];
+    
+    return matchingResults.filter(result => {
+      const details = result.guest_details || {};
+      
+      // פילטר לפי צד
+      if (filters.side) {
+        const side = details['צד'] || details['side'] || '';
+        if (!side.toLowerCase().includes(filters.side.toLowerCase())) {
+          return false;
+        }
+      }
+      
+      // פילטר לפי קבוצה
+      if (filters.group) {
+        const group = details['קבוצה'] || details['group'] || details['קטגוריה'] || '';
+        if (!group.toLowerCase().includes(filters.group.toLowerCase())) {
+          return false;
+        }
+      }
+      
+      // פילטר לפי חיפוש כללי
+      if (filters.searchTerm) {
+        const searchLower = filters.searchTerm.toLowerCase();
+        const guestName = result.guest.toLowerCase();
+        if (!guestName.includes(searchLower)) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+  };
+
+  const getUniqueValues = (field) => {
+    const values = new Set();
+    matchingResults.forEach(result => {
+      const details = result.guest_details || {};
+      const value = details[field] || details[field.toLowerCase()] || '';
+      if (value && value.toString().trim()) {
+        values.add(value.toString().trim());
+      }
+    });
+    return Array.from(values);
   };
 
   return (
@@ -352,11 +497,13 @@ const ChatunoTech = () => {
           box-shadow: 0 20px 60px rgba(0,0,0,0.15);
           padding: 40px;
           width: 100%;
-          max-width: 600px;
+          max-width: 800px;
           min-width: 320px;
           position: relative;
           overflow: hidden;
           margin: auto;
+          max-height: 90vh;
+          overflow-y: auto;
         }
 
         .content-card::before {
@@ -479,6 +626,61 @@ const ChatunoTech = () => {
           text-align: right;
         }
 
+        .guest-card {
+          background: linear-gradient(135deg, var(--teal-green), var(--orange-gold));
+          color: white;
+          border-radius: 20px;
+          padding: 25px;
+          margin-bottom: 25px;
+          box-shadow: 0 8px 25px rgba(42, 157, 143, 0.3);
+        }
+
+        .guest-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+          flex-wrap: wrap;
+        }
+
+        .guest-name {
+          font-size: 1.4rem;
+          font-weight: 700;
+          margin: 0;
+        }
+
+        .guest-progress {
+          background: rgba(255, 255, 255, 0.2);
+          padding: 8px 15px;
+          border-radius: 20px;
+          font-size: 0.9rem;
+        }
+
+        .guest-details {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 15px;
+          margin-top: 15px;
+        }
+
+        .detail-item {
+          background: rgba(255, 255, 255, 0.15);
+          padding: 12px;
+          border-radius: 10px;
+          text-align: center;
+        }
+
+        .detail-label {
+          font-size: 0.8rem;
+          opacity: 0.9;
+          margin-bottom: 5px;
+        }
+
+        .detail-value {
+          font-weight: 600;
+          font-size: 0.95rem;
+        }
+
         .candidate-card {
           background: var(--light-gray);
           border-radius: 12px;
@@ -587,6 +789,53 @@ const ChatunoTech = () => {
           to { transform: translateY(0) scale(1); opacity: 1; }
         }
 
+        .filters-container {
+          background: var(--light-gray);
+          border-radius: 15px;
+          padding: 20px;
+          margin: 20px 0;
+          border: 2px solid #e1e8ed;
+        }
+
+        .filters-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 15px;
+          margin-bottom: 15px;
+        }
+
+        .filter-item {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .filter-item select, .filter-item input {
+          margin: 5px 0 0 0;
+          padding: 10px;
+          border-radius: 8px;
+          border: 1px solid #ddd;
+        }
+
+        .progress-indicator {
+          background: rgba(255, 255, 255, 0.2);
+          border-radius: 20px;
+          padding: 10px 15px;
+          text-align: center;
+          margin-bottom: 20px;
+          font-weight: 600;
+        }
+
+        .limit-warning {
+          background: rgba(255, 193, 7, 0.1);
+          border: 2px solid rgba(255, 193, 7, 0.3);
+          color: #856404;
+          padding: 15px;
+          border-radius: 10px;
+          margin: 15px 0;
+          text-align: center;
+          font-weight: 600;
+        }
+
         .guide-container {
           background: var(--light-gray);
           border-radius: 15px;
@@ -640,6 +889,26 @@ const ChatunoTech = () => {
         .chrome-link:hover {
           text-decoration: underline;
         }
+
+        @media (max-width: 768px) {
+          .content-card {
+            padding: 20px;
+            margin: 10px;
+          }
+          
+          .guest-header {
+            flex-direction: column;
+            gap: 10px;
+          }
+          
+          .guest-details {
+            grid-template-columns: 1fr;
+          }
+          
+          .filters-grid {
+            grid-template-columns: 1fr;
+          }
+        }
       `}</style>
     
       <div className="app-container">
@@ -661,6 +930,7 @@ const ChatunoTech = () => {
                   <li>🔍 מחפשת התאמות אוטומטיות בין השמות</li>
                   <li>📱 מוסיפה מספרי טלפון למוזמנים</li>
                   <li>⚡ חוסכת שעות של עבודה ידנית!</li>
+                  <li>🎁 30 התאמות חינם כל יום!</li>
                 </ul>
               </div>
               <button className="btn btn-primary" onClick={startAuth}>
@@ -673,7 +943,18 @@ const ChatunoTech = () => {
           {currentScreen === 'authScreen' && (
             <div className="auth-screen" style={{ textAlign: 'center' }}>
               <h2>🔐 אימות משתמש</h2>
-              <p>הזן את מספר הטלפון שלך כדי להתחיל</p>
+              <p>הזן את הפרטים שלך כדי להתחיל</p>
+
+              <div>
+                <label>שם מלא</label>
+                <input
+                  type="text"
+                  placeholder="הזן שם מלא"
+                  value={fullNameValue}
+                  onChange={(e) => setFullNameValue(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
 
               <div>
                 <label>מספר טלפון</label>
@@ -730,6 +1011,15 @@ const ChatunoTech = () => {
             <div>
               <h2>📁 העלה את הקבצים שלך</h2>
               
+              {/* הצגת מגבלה יומית */}
+              {!currentUser.isPro && (
+                <div className="limit-warning">
+                  📊 מגבלה יומית: {currentUser.dailyMatchesUsed}/{DAILY_LIMIT} התאמות
+                  <br />
+                  💎 שדרג לפרימיום להתאמות ללא הגבלה!
+                </div>
+              )}
+              
               {/* קובץ אנשי קשר */}
               <div style={{ marginBottom: '30px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
@@ -750,9 +1040,9 @@ const ChatunoTech = () => {
                   style={{ marginBottom: '10px' }}
                   disabled={isLoading}
                 />
-                {parsedData.contacts.length > 0 && (
+                {uploadedFiles.contacts && (
                   <div className="status-message status-success">
-                    ✅ נטענו {parsedData.contacts.length} אנשי קשר
+                    ✅ קובץ אנשי קשר נטען
                   </div>
                 )}
               </div>
@@ -767,9 +1057,9 @@ const ChatunoTech = () => {
                   style={{ marginBottom: '10px' }}
                   disabled={isLoading}
                 />
-                {parsedData.guests.length > 0 && (
+                {uploadedFiles.guests && (
                   <div className="status-message status-success">
-                    ✅ נטענו {parsedData.guests.length} מוזמנים
+                    ✅ קובץ מוזמנים נטען
                   </div>
                 )}
               </div>
@@ -782,6 +1072,27 @@ const ChatunoTech = () => {
               >
                 {isLoading ? '⏳ טוען...' : '🚀 התחל מיזוג'}
               </button>
+              
+              {/* כפתורי הורדת דוגמאות */}
+              <div style={{ marginTop: '20px', textAlign: 'center' }}>
+                <p>💡 צריך עזרה? הורד קבצי דוגמה:</p>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => window.open(`${API_BASE_URL}/download-guests-template`, '_blank')}
+                    style={{ padding: '10px 20px' }}
+                  >
+                    📥 דוגמה - מוזמנים
+                  </button>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => window.open(`${API_BASE_URL}/download-contacts-template`, '_blank')}
+                    style={{ padding: '10px 20px' }}
+                  >
+                    📥 דוגמה - אנשי קשר
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -805,26 +1116,103 @@ const ChatunoTech = () => {
           {/* --- מסך התאמות --- */}
           {currentScreen === 'matchingScreen' && (
             <div>
-              <h2>🎯 התאמות שנמצאו</h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h2>🎯 התאמות שנמצאו</h2>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={exportResults}
+                  disabled={isLoading}
+                  style={{ padding: '10px 20px', margin: '0' }}
+                >
+                  {isLoading ? '⏳ מייצא...' : '📥 ייצא לExcel'}
+                </button>
+              </div>
+
+              {/* פילטרים */}
+              <div className="filters-container">
+                <h4>🔍 פילטרים</h4>
+                <div className="filters-grid">
+                  <div className="filter-item">
+                    <label>צד:</label>
+                    <select 
+                      value={filters.side} 
+                      onChange={(e) => setFilters(prev => ({...prev, side: e.target.value}))}
+                    >
+                      <option value="">כל הצדדים</option>
+                      {getUniqueValues('צד').map(side => (
+                        <option key={side} value={side}>{side}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="filter-item">
+                    <label>קבוצה:</label>
+                    <select 
+                      value={filters.group} 
+                      onChange={(e) => setFilters(prev => ({...prev, group: e.target.value}))}
+                    >
+                      <option value="">כל הקבוצות</option>
+                      {getUniqueValues('קבוצה').map(group => (
+                        <option key={group} value={group}>{group}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="filter-item">
+                    <label>חיפוש:</label>
+                    <input 
+                      type="text" 
+                      placeholder="חפש מוזמן..."
+                      value={filters.searchTerm}
+                      onChange={(e) => setFilters(prev => ({...prev, searchTerm: e.target.value}))}
+                    />
+                  </div>
+                </div>
+              </div>
+
               {matchingResults.length > 0 && (
                 <div>
-                  <div style={{ 
-                    background: 'linear-gradient(135deg, var(--teal-green), var(--orange-gold))',
-                    color: 'white',
-                    padding: '15px',
-                    borderRadius: '10px',
-                    marginBottom: '20px',
-                    textAlign: 'center'
-                  }}>
-                    <strong style={{ fontSize: '1.2rem' }}>
-                      מוזמן {currentGuestIndex + 1} מתוך {matchingResults.length}
-                    </strong>
-                    <br />
-                    <span style={{ fontSize: '1.1rem' }}>
-                      {matchingResults[currentGuestIndex].guest}
-                    </span>
+                  {/* פרטי מוזמן נוכחי */}
+                  <div className="guest-card">
+                    <div className="guest-header">
+                      <h3 className="guest-name">
+                        👰 {matchingResults[currentGuestIndex].guest}
+                      </h3>
+                      <div className="guest-progress">
+                        מוזמן {currentGuestIndex + 1} מתוך {matchingResults.length}
+                        {!currentUser.isPro && (
+                          <span style={{ marginRight: '10px' }}>
+                            • נותרו {getRemainingDailyLimit()} התאמות
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* פרטים נוספים על המוזמן */}
+                    <div className="guest-details">
+                      {Object.entries(matchingResults[currentGuestIndex].guest_details || {}).map(([key, value]) => {
+                        if (key === 'שם מלא' || key === 'norm_name' || !value) return null;
+                        return (
+                          <div key={key} className="detail-item">
+                            <div className="detail-label">{key}</div>
+                            <div className="detail-value">{value}</div>
+                          </div>
+                        );
+                      })}
+                      <div className="detail-item">
+                        <div className="detail-label">ציון התאמה מקסימלי</div>
+                        <div className="detail-value">
+                          {matchingResults[currentGuestIndex].best_score}%
+                        </div>
+                      </div>
+                      <div className="detail-item">
+                        <div className="detail-label">מועמדים</div>
+                        <div className="detail-value">
+                          {matchingResults[currentGuestIndex].candidates?.length || 0}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   
+                  {/* מועמדים */}
                   {matchingResults[currentGuestIndex].candidates?.length > 0 ? (
                     matchingResults[currentGuestIndex].candidates.map((candidate, index) => (
                       <div key={index} className="candidate-card">
@@ -860,6 +1248,31 @@ const ChatunoTech = () => {
                     </div>
                   )}
                   
+                  {/* כפתור "לא נמצא" */}
+                  <div className="candidate-card" style={{ border: '2px dashed #ccc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <strong>❌ לא נמצא איש קשר מתאים</strong>
+                        <br />
+                        <small style={{ color: '#666' }}>המוזמן יישאר ללא מספר טלפון</small>
+                      </div>
+                      <button 
+                        className="btn btn-secondary" 
+                        onClick={() => selectCandidate({ 
+                          name: 'לא נמצא', 
+                          phone: '', 
+                          score: 0, 
+                          reason: 'לא נמצא',
+                          isNotFound: true 
+                        })}
+                        style={{ padding: '8px 16px', margin: '0' }}
+                      >
+                        ✅ לא נמצא
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* כפתורי ניווט */}
                   <div style={{ marginTop: '30px', display: 'flex', justifyContent: 'space-between' }}>
                     <button 
                       className="btn btn-secondary" 
@@ -871,10 +1284,28 @@ const ChatunoTech = () => {
                     <button 
                       className="btn btn-primary" 
                       onClick={nextGuest}
+                      disabled={!selectedContacts[matchingResults[currentGuestIndex].guest]}
                     >
                       {currentGuestIndex === matchingResults.length - 1 ? '✅ סיים' : '➡️ הבא'}
                     </button>
                   </div>
+
+                  {/* בחירה נוכחית */}
+                  {selectedContacts[matchingResults[currentGuestIndex].guest] && (
+                    <div style={{ 
+                      marginTop: '20px', 
+                      padding: '15px', 
+                      background: 'rgba(40, 167, 69, 0.1)', 
+                      borderRadius: '10px',
+                      border: '2px solid rgba(40, 167, 69, 0.2)'
+                    }}>
+                      <strong>✅ נבחר: </strong>
+                      {selectedContacts[matchingResults[currentGuestIndex].guest].name}
+                      {selectedContacts[matchingResults[currentGuestIndex].guest].phone && 
+                        ` - ${selectedContacts[matchingResults[currentGuestIndex].guest].phone}`
+                      }
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -896,7 +1327,8 @@ const ChatunoTech = () => {
                   ✅ ללא הגבלת מוזמנים<br/>
                   ✅ התאמות מושלמות<br/>
                   ✅ ייצוא לאקסל<br/>
-                  ✅ תמיכה מלאה
+                  ✅ תמיכה מלאה<br/>
+                  ✅ ללא מגבלה יומית
                 </div>
                 <div style={{ 
                   background: 'rgba(255,255,255,0.2)', 
@@ -905,10 +1337,10 @@ const ChatunoTech = () => {
                   marginTop: '15px'
                 }}>
                   <strong style={{ fontSize: '1.2rem' }}>
-                    יש לך {matchingResults.length} מוזמנים
+                    השתמשת ב-{currentUser.dailyMatchesUsed}/{DAILY_LIMIT} התאמות היום
                   </strong>
                   <br/>
-                  <small>מגבלה חינמית: 30 מוזמנים</small>
+                  <small>מחר המונה יתאפס ותוכל להמשיך</small>
                 </div>
               </div>
               
@@ -928,10 +1360,10 @@ const ChatunoTech = () => {
               
               <button 
                 className="btn btn-secondary" 
-                onClick={continueFree}
+                onClick={() => showScreen('landingPage')}
                 style={{ width: '100%', padding: '15px' }}
               >
-                📝 המשך חינם (30 מוזמנים ראשונים)
+                🏠 חזור לדף הבית
               </button>
               
               <div style={{ 
@@ -967,9 +1399,20 @@ const ChatunoTech = () => {
                 <p>• {Object.keys(selectedContacts).length} התאמות נבחרו</p>
                 <p>• {matchingResults.length - Object.keys(selectedContacts).length} מוזמנים ללא מספר</p>
               </div>
-              <button className="btn btn-primary" onClick={() => window.location.reload()}>
-                🔄 התחל מחדש
-              </button>
+              
+              <div style={{ marginTop: '20px' }}>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={exportResults}
+                  disabled={isLoading}
+                  style={{ marginRight: '10px' }}
+                >
+                  {isLoading ? '⏳ מייצא...' : '📥 ייצא תוצאות'}
+                </button>
+                <button className="btn btn-secondary" onClick={() => window.location.reload()}>
+                  🔄 התחל מחדש
+                </button>
+              </div>
             </div>
           )}
 
@@ -990,37 +1433,34 @@ const ChatunoTech = () => {
                 >
                   ✕
                 </button>
-                <h3>📱 איך להוציא אנשי קשר מהטלפון?</h3>
+                <h3>📱 איך להוציא אנשי קשר?</h3>
                 
                 <div className="guide-container">
-                  <h4>📱 אנדרואיד:</h4>
+                  <h4>🌐 הדרך הקלה ביותר:</h4>
                   <ol className="guide-steps">
                     <li className="guide-step">
-                      פתח את אפליקציית <strong>אנשי קשר</strong>
+                      פתח דפדפן <strong>במחשב</strong> (לא בטלפון)
                     </li>
                     <li className="guide-step">
-                      לחץ על <strong>⋮</strong> (שלוש נקודות) ובחר <strong>ייצא</strong>
+                      התקן את התוסף <strong>
+                        <a href="https://chromewebstore.google.com/detail/joni/aakppiadmnaeffmjijolmgmkcfhpglbh" 
+                           target="_blank" 
+                           className="chrome-link">
+                          ג'וני
+                        </a>
+                      </strong> בדפדפן Chrome
                     </li>
                     <li className="guide-step">
-                      בחר <strong>ייצא ל-VCF</strong> או <strong>CSV</strong>
+                      היכנס ל-<strong>WhatsApp Web</strong>
                     </li>
                     <li className="guide-step">
-                      שמור את הקובץ ועלה אותו כאן
-                    </li>
-                  </ol>
-                </div>
-
-                <div className="guide-container">
-                  <h4>🍎 iPhone:</h4>
-                  <ol className="guide-steps">
-                    <li className="guide-step">
-                      פתח <strong>הגדרות</strong> → <strong>אנשי קשר</strong>
+                      לחץ על סמל <strong>J</strong> בסרגל הכלים
                     </li>
                     <li className="guide-step">
-                      בחר <strong>ייצא אנשי קשר vCard</strong>
+                      בחר <strong>אנשי קשר</strong> → <strong>שמירה לקובץ Excel</strong>
                     </li>
                     <li className="guide-step">
-                      שלח לעצמך במייל ועלה כאן
+                      הקובץ יורד אוטומטית למחשב
                     </li>
                   </ol>
                 </div>
@@ -1031,7 +1471,7 @@ const ChatunoTech = () => {
                   borderRadius: '10px',
                   marginTop: '20px'
                 }}>
-                  💡 <strong>טיפ:</strong> אם יש לך בעיות, תוכל גם ליצור קובץ Excel פשוט עם עמודות "שם" ו"טלפון"
+                  💡 <strong>חשוב:</strong> התוסף עובד רק בדפדפן Chrome במחשב
                 </div>
               </div>
             </div>
