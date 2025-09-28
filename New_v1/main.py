@@ -72,39 +72,134 @@ try:
         return hashlib.md5(file_content).hexdigest()
 
     async def log_user_to_sheets(phone: str, full_name: str = ""):
-        """שמירת משתמש חדש ב-Google Sheets"""
+    """שמירת משתמש חדש ב-Google Sheets עם debugging מתקדם"""
+    try:
+        print(f"🔄 Starting log_user_to_sheets for {phone}")
+        
+        if not LOGIC_AVAILABLE:
+            print("❌ Logic not available, skipping Google Sheets logging")
+            return
+            
+        # בדיקת משתני סביבה
+        sheet_id = os.environ.get('GOOGLE_SHEET_ID')
+        sheet_name = os.environ.get('GOOGLE_SHEET_NAME', 'users1')
+        
+        print(f"📋 Environment variables:")
+        print(f"   GOOGLE_SHEET_ID: {sheet_id}")
+        print(f"   GOOGLE_SHEET_NAME: {sheet_name}")
+        
+        if not sheet_id:
+            print("❌ GOOGLE_SHEET_ID not found in environment variables")
+            return
+        
+        # בדיקת הרשאות והתחברות
+        print("🔑 Checking Google authentication...")
+        
+        import google.auth
+        import gspread
+        from google.auth.exceptions import DefaultCredentialsError
+        
         try:
-            print(f"Attempting to log user {phone} to Google Sheets")
+            # נסה קודם עם הרשאות קריאה בלבד
+            READ_SCOPES = [
+                "https://www.googleapis.com/auth/spreadsheets.readonly",
+                "https://www.googleapis.com/auth/drive.readonly",
+            ]
             
-            if not LOGIC_AVAILABLE:
-                print("Logic not available, skipping Google Sheets logging")
-                return
-                
-            # קבלת משתני סביבה
-            sheet_id = os.environ.get('GOOGLE_SHEET_ID')
-            sheet_name = os.environ.get('GOOGLE_SHEET_NAME', 'users1')
+            creds, project_id = google.auth.default(scopes=READ_SCOPES)
+            print(f"✅ Authentication successful!")
+            print(f"   Project ID: {project_id}")
+            print(f"   Service Account: {getattr(creds, 'service_account_email', 'Unknown')}")
             
-            if not sheet_id:
-                print("❌ GOOGLE_SHEET_ID not found in environment variables")
-                return
-                
-            print(f"📋 Using sheet ID: {sheet_id}, sheet name: {sheet_name}")
-            
-            # חיבור ל-Google Sheets
-            import google.auth
-            import gspread
-            
-            creds, _ = google.auth.default()
+        except DefaultCredentialsError as e:
+            print(f"❌ Authentication failed: {e}")
+            print("💡 Make sure you're running on Google Cloud with proper service account")
+            return
+        except Exception as e:
+            print(f"❌ Unexpected auth error: {e}")
+            return
+        
+        # נסה להתחבר ל-gspread
+        try:
             gc = gspread.authorize(creds)
-            
-            # פתח את הגיליון עם המשתנים מהסביבה
+            print("✅ gspread authorization successful")
+        except Exception as e:
+            print(f"❌ gspread authorization failed: {e}")
+            return
+        
+        # נסה לפתוח את הגיליון
+        try:
+            print(f"📖 Trying to open spreadsheet: {sheet_id}")
             sh = gc.open_by_key(sheet_id)
+            print(f"✅ Spreadsheet opened: {sh.title}")
+        except gspread.SpreadsheetNotFound:
+            print(f"❌ Spreadsheet not found: {sheet_id}")
+            print("💡 Make sure the spreadsheet exists and the service account has access")
+            return
+        except Exception as e:
+            print(f"❌ Error opening spreadsheet: {e}")
+            return
+        
+        # נסה לפתוח את הלשונית
+        try:
+            print(f"📄 Trying to open worksheet: {sheet_name}")
             ws = sh.worksheet(sheet_name)
+            print(f"✅ Worksheet opened: {ws.title}")
+        except gspread.WorksheetNotFound:
+            print(f"❌ Worksheet '{sheet_name}' not found")
+            print("📝 Available worksheets:")
+            for worksheet in sh.worksheets():
+                print(f"   - {worksheet.title}")
+            print("💡 Creating new worksheet...")
+            
+            try:
+                ws = sh.add_worksheet(title=sheet_name, rows="1000", cols="10")
+                # הוסף כותרות
+                headers = ['id', 'full_name', 'phone', 'join_date', 'last_activity', 
+                          'daily_matches_used', 'current_file_hash', 'current_progress', 'is_premium']
+                ws.update('A1:I1', [headers])
+                print(f"✅ Created new worksheet: {sheet_name}")
+            except Exception as e:
+                print(f"❌ Error creating worksheet: {e}")
+                return
+        except Exception as e:
+            print(f"❌ Error accessing worksheet: {e}")
+            return
+        
+        # כאן אנחנו נתקלים בבעיה - אין הרשאות כתיבה
+        print("⚠️  Current credentials are READ-ONLY. Need WRITE permissions for actual operations.")
+        print("🔄 Trying with write permissions...")
+        
+        # נסה עם הרשאות כתיבה
+        try:
+            WRITE_SCOPES = [
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
+            ]
+            
+            creds_write, _ = google.auth.default(scopes=WRITE_SCOPES)
+            gc_write = gspread.authorize(creds_write)
+            sh_write = gc_write.open_by_key(sheet_id)
+            ws_write = sh_write.worksheet(sheet_name)
+            
+            print("✅ Write permissions granted!")
+            
+        except Exception as e:
+            print(f"❌ Write permissions denied: {e}")
+            print("💡 Please ensure the service account has Editor permissions on the spreadsheet")
+            print(f"   Service Account: {getattr(creds, 'service_account_email', 'Unknown')}")
+            print(f"   Spreadsheet: https://docs.google.com/spreadsheets/d/{sheet_id}")
+            return
+        
+        # כעת נסה לכתוב
+        try:
+            print("💾 Attempting to write data...")
             
             # בדוק אם המשתמש כבר קיים
-            phone_values = ws.col_values(3) if ws.col_values(3) else []
+            phone_values = ws_write.col_values(3) if ws_write.row_count > 1 else []
             existing_row = None
-            for i, existing_phone in enumerate(phone_values[1:], 2):  # מתחיל מהשורה השנייה
+            
+            for i, existing_phone in enumerate(phone_values[1:], 2):
                 if existing_phone == phone:
                     existing_row = i
                     break
@@ -112,36 +207,77 @@ try:
             current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             if existing_row:
-                # עדכן משתמש קיים
-                print(f"User {phone} already exists, updating...")
-                ws.update(f"E{existing_row}", current_time)  # עדכן last_activity
+                print(f"👤 User {phone} exists at row {existing_row}, updating...")
+                ws_write.update(f"E{existing_row}", current_time)
                 if full_name and full_name.strip():
-                    ws.update(f"B{existing_row}", full_name)  # עדכן full_name אם סופק
+                    ws_write.update(f"B{existing_row}", full_name)
+                print("✅ User updated successfully")
             else:
-                # מצא השורה הבאה
-                all_values = ws.get_all_values()
+                print(f"👤 Adding new user: {phone}")
+                all_values = ws_write.get_all_values()
                 next_row = len(all_values) + 1
                 next_id = next_row - 1
                 
-                # הוסף משתמש חדש עם העמודות החדשות
-                ws.update(f"A{next_row}:I{next_row}", [[
-                    next_id,                    # A: id
-                    full_name or phone,         # B: full_name 
-                    phone,                      # C: phone  
-                    current_time,               # D: join_date
-                    current_time,               # E: last_activity
-                    0,                          # F: daily_matches_used
-                    "",                         # G: current_file_hash
-                    0,                          # H: current_progress
-                    False                       # I: is_premium
-                ]])
+                new_user_data = [
+                    next_id, full_name or phone, phone, current_time, current_time,
+                    0, "", 0, False
+                ]
                 
-                print(f"✅ User {phone} logged successfully with ID {next_id}")
+                ws_write.update(f"A{next_row}:I{next_row}", [new_user_data])
+                print(f"✅ User {phone} added successfully with ID {next_id}")
             
         except Exception as e:
-            print(f"❌ Failed to log user to sheets: {e}")
-            import traceback
-            print(f"Full traceback: {traceback.format_exc()}")
+            print(f"❌ Error writing to spreadsheet: {e}")
+            print(f"   Error type: {type(e).__name__}")
+            print(f"   Error details: {str(e)}")
+            return
+            
+    except Exception as e:
+        print(f"💥 Unexpected error in log_user_to_sheets: {e}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+
+
+# הוסף endpoint לבדיקת חיבור
+@app.get("/test-google-sheets")
+async def test_google_sheets():
+    """בדיקת חיבור ל-Google Sheets"""
+    try:
+        sheet_id = os.environ.get('GOOGLE_SHEET_ID')
+        sheet_name = os.environ.get('GOOGLE_SHEET_NAME', 'users1')
+        
+        if not sheet_id:
+            return {"error": "GOOGLE_SHEET_ID not set"}
+        
+        import google.auth
+        import gspread
+        
+        # בדיקת אימות
+        creds, project_id = google.auth.default()
+        service_account = getattr(creds, 'service_account_email', 'Unknown')
+        
+        # בדיקת גישה לגיליון
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(sheet_id)
+        ws = sh.worksheet(sheet_name)
+        
+        return {
+            "status": "success",
+            "project_id": project_id,
+            "service_account": service_account,
+            "spreadsheet_title": sh.title,
+            "worksheet_title": ws.title,
+            "row_count": ws.row_count,
+            "col_count": ws.col_count,
+            "spreadsheet_url": f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
 
     async def get_user_data(phone: str) -> dict:
         """קבלת נתוני משתמש מ-Google Sheets"""
