@@ -1,27 +1,72 @@
-print("🚀 Starting application...")
+#!/usr/bin/env python3
+import logging
+
+# הגדרת logging בתחילת הכל
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+logger.info("🚀 Starting application...")
 
 try:
-    print("📦 Importing libraries...")
+    logger.info("📦 Importing libraries...")
+    
+    # import בסיסי ראשון
+    import os
+    import sys
+    
+    # בדיקת משתני סביבה קריטיים
+    PORT = os.environ.get('PORT', '8080')
+    logger.info(f"Port configured: {PORT}")
+    
+    # import רגיל
     from fastapi import FastAPI, UploadFile, File, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse
     from io import BytesIO
-    import pandas as pd
-    import random, time, requests, os, uvicorn, json, re, datetime, hashlib
-    from google.oauth2 import service_account
-    print("✅ All libraries imported successfully")
+    import uvicorn
+    import json
+    import re
+    import datetime
+    import hashlib
+    import random
+    import time
+    import requests
     
-    # בדיקה אם קובץ logic קיים
+    logger.info("✅ Basic libraries imported")
+    
+    # import מותנה
+    try:
+        import pandas as pd
+        logger.info("✅ Pandas imported")
+    except ImportError as e:
+        logger.error(f"❌ Pandas import failed: {e}")
+        sys.exit(1)
+    
+    try:
+        from google.oauth2 import service_account
+        logger.info("✅ Google auth imported")
+    except ImportError as e:
+        logger.error(f"❌ Google auth import failed: {e}")
+        sys.exit(1)
+    
+    # בדיקת logic module
     try:
         from logic import load_excel_flexible, top_matches, NAME_COL, PHONE_COL, create_contacts_template, to_buf
         LOGIC_AVAILABLE = True
-        print("✅ Logic module available")
+        logger.info("✅ Logic module available")
     except ImportError as e:
         LOGIC_AVAILABLE = False
-        print(f"⚠️ Logic module not found: {e}")
+        logger.warning(f"⚠️ Logic module not found: {e}")
+        logger.warning("⚠️ App will run in limited mode")
     
-    app = FastAPI()
+    # יצירת אפליקציה
+    logger.info("🏗️ Creating FastAPI app...")
+    app = FastAPI(title="Guest Matcher API", version="1.0.0")
     
+    # CORS
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -29,24 +74,36 @@ try:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    logger.info("✅ CORS configured")
     
     # קבועים
     DAILY_LIMIT = 30
     
-    # משתני סביבה
+    # משתני סביבה עם בדיקות
     GREEN_API_ID = os.environ.get('GREEN_API_ID')
     GREEN_API_TOKEN = os.environ.get('GREEN_API_TOKEN')
     GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
     GOOGLE_SHEET_NAME = os.environ.get('GOOGLE_SHEET_NAME', 'users1')
     GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     
-    # בדיקת משתנים חיוניים
-    if not GREEN_API_ID or not GREEN_API_TOKEN:
-        print("❌ GREEN API credentials missing")
-    if not GOOGLE_SHEET_ID or not GOOGLE_CREDENTIALS_JSON:
-        print("❌ Google Sheets configuration missing")
+    # בדיקת משתנים
+    missing_vars = []
+    if not GREEN_API_ID:
+        missing_vars.append('GREEN_API_ID')
+    if not GREEN_API_TOKEN:
+        missing_vars.append('GREEN_API_TOKEN')
+    if not GOOGLE_SHEET_ID:
+        missing_vars.append('GOOGLE_SHEET_ID')
+    if not GOOGLE_CREDENTIALS_JSON:
+        missing_vars.append('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     
-    GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
+    if missing_vars:
+        logger.warning(f"⚠️ Missing environment variables: {', '.join(missing_vars)}")
+        logger.warning("⚠️ Some features may not work properly")
+    else:
+        logger.info("✅ All environment variables configured")
+    
+    GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}" if GREEN_API_ID and GREEN_API_TOKEN else None
     
     # אחסון זמני
     pending_codes = {}
@@ -79,10 +136,11 @@ try:
             )
             
             _google_client = gspread.authorize(credentials)
+            logger.info("✅ Google Sheets client created")
             return _google_client
             
         except Exception as e:
-            print(f"❌ Google Sheets connection failed: {e}")
+            logger.error(f"❌ Google Sheets connection failed: {e}")
             raise
 
     def format_phone_for_whatsapp(phone: str) -> str:
@@ -110,10 +168,11 @@ try:
                 headers = ['id', 'full_name', 'phone', 'join_date', 'last_activity',
                           'daily_matches_used', 'current_file_hash', 'current_progress', 'is_premium']
                 ws.update('A1:I1', [headers])
+                logger.info(f"✅ Created new worksheet: {GOOGLE_SHEET_NAME}")
                 
             return ws
         except Exception as e:
-            print(f"❌ Worksheet access failed: {e}")
+            logger.error(f"❌ Worksheet access failed: {e}")
             return None
 
     async def log_user_to_sheets(phone: str, full_name: str = ""):
@@ -146,6 +205,7 @@ try:
                 ws.update(f"E{existing_row}", current_time)
                 if full_name and full_name.strip():
                     ws.update(f"B{existing_row}", full_name)
+                logger.info(f"✅ Updated user: {phone}")
             else:
                 # הוסף משתמש חדש
                 next_row = len(all_values) + 1
@@ -157,9 +217,10 @@ try:
                 ]
                 
                 ws.update(f"A{next_row}:I{next_row}", [new_user_data])
+                logger.info(f"✅ Added new user: {phone}")
                 
         except Exception as e:
-            print(f"❌ Failed to log user: {e}")
+            logger.error(f"❌ Failed to log user: {e}")
 
     async def get_user_data(phone: str) -> dict:
         """קבלת נתוני משתמש"""
@@ -203,7 +264,7 @@ try:
             return default_data
             
         except Exception as e:
-            print(f"❌ Error getting user data: {e}")
+            logger.error(f"❌ Error getting user data: {e}")
             return default_data
 
     async def update_user_progress(phone: str, matches_used: int = None, file_hash: str = None, progress: int = None):
@@ -231,11 +292,18 @@ try:
                     break
                     
         except Exception as e:
-            print(f"❌ Error updating progress: {e}")
+            logger.error(f"❌ Error updating progress: {e}")
     
+    # Routes
     @app.get("/")
     async def root():
-        return {"status": "healthy", "message": "Guest Matcher API is running", "logic_available": LOGIC_AVAILABLE}
+        return {
+            "status": "healthy", 
+            "message": "Guest Matcher API is running", 
+            "logic_available": LOGIC_AVAILABLE,
+            "google_sheets_configured": bool(GOOGLE_SHEET_ID and GOOGLE_CREDENTIALS_JSON),
+            "whatsapp_configured": bool(GREEN_API_ID and GREEN_API_TOKEN)
+        }
     
     @app.get("/health")
     async def health():
@@ -247,6 +315,7 @@ try:
             data = await request.json()
             return {"status": "ok"}
         except Exception as e:
+            logger.error(f"Webhook error: {e}")
             return {"status": "error", "message": str(e)}
     
     @app.post("/send-code")
@@ -257,7 +326,7 @@ try:
         if not phone:
             raise HTTPException(status_code=400, detail="Phone number is required")
         
-        if not GREEN_API_ID or not GREEN_API_TOKEN:
+        if not GREEN_API_URL:
             raise HTTPException(status_code=500, detail="WhatsApp API not configured")
         
         formatted_phone = format_phone_for_whatsapp(phone)
@@ -273,6 +342,7 @@ try:
             res = requests.post(GREEN_API_URL, json=payload, timeout=10)
             return {"status": "success", "code": code, "response": res.json()}
         except Exception as e:
+            logger.warning(f"WhatsApp API error: {e}")
             return {"status": "success", "code": code, "message": "Code generated (WhatsApp sending failed)"}
     
     @app.post("/verify-code")
@@ -401,6 +471,7 @@ try:
             }
         
         except Exception as e:
+            logger.error(f"Merge files error: {e}")
             raise HTTPException(status_code=500, detail=f"שגיאה בעיבוד הקבצים: {str(e)}")
 
     @app.post("/export-results")
@@ -518,20 +589,37 @@ try:
             }
             
         except Exception as e:
+            logger.error(f"Google Sheets test error: {e}")
             return {
                 "status": "error",
                 "error": str(e),
                 "error_type": type(e).__name__
             }
     
-    print("✅ All routes defined successfully")
+    logger.info("✅ All routes defined successfully")
     
+    # קריאת הפעלת השרת
     if __name__ == "__main__":
-        port = int(os.environ.get("PORT", 8080))
-        uvicorn.run(app, host="0.0.0.0", port=port)
+        port = int(PORT)
+        logger.info(f"🚀 Starting server on port {port}")
+        uvicorn.run(
+            app, 
+            host="0.0.0.0", 
+            port=port,
+            timeout_keep_alive=30,
+            access_log=False  # מפחית לוגים מיותרים
+        )
+    else:
+        # כשרץ בCloud Run
+        logger.info("✅ FastAPI app configured for Cloud Run")
 
+except ImportError as e:
+    logger.error(f"💥 IMPORT ERROR: {e}")
+    logger.error("Please check that all required packages are installed")
+    sys.exit(1)
+    
 except Exception as e:
-    print(f"💥 CRITICAL ERROR during startup: {e}")
+    logger.error(f"💥 CRITICAL ERROR during startup: {e}")
     import traceback
-    print(f"📍 Full traceback: {traceback.format_exc()}")
-    exit(1)
+    logger.error(f"📍 Full traceback: {traceback.format_exc()}")
+    sys.exit(1)
