@@ -904,27 +904,42 @@ const ChatunoTech = () => {
 
         .candidate-card {
           background: var(--light-gray);
-          border-radius: 12px;
-          padding: 12px 16px;
-          margin: 8px 0;
+          border-radius: 10px;
+          padding: 10px 12px;
+          margin: 6px 0;
           border: 2px solid #e1e8ed;
           transition: all 0.3s ease;
           cursor: pointer;
           display: flex;
           justify-content: space-between;
           align-items: center;
+          max-width: 500px;
+          margin-left: auto;
+          margin-right: auto;
         }
 
         .candidate-card:hover {
           border-color: var(--teal-green);
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 15px rgba(42, 157, 143, 0.2);
         }
 
         .candidate-card.selected {
-          border-color: var(--success-green);
-          background: rgba(40, 167, 69, 0.1);
-          box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.2);
+          border-color: #00ff88;
+          border-width: 3px;
+          background: linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(40, 167, 69, 0.15));
+          box-shadow: 0 0 20px rgba(0, 255, 136, 0.6), 0 0 40px rgba(0, 255, 136, 0.3);
+          transform: translateY(-2px) scale(1.02);
+          animation: pulseGreen 2s infinite;
+        }
+
+        @keyframes pulseGreen {
+          0%, 100% {
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.6), 0 0 40px rgba(0, 255, 136, 0.3);
+          }
+          50% {
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.8), 0 0 60px rgba(0, 255, 136, 0.5);
+          }
         }
 
         .candidate-info {
@@ -1729,93 +1744,7 @@ const ChatunoTech = () => {
                 )}
               </div>
 
-              {/* סרגל צד עם פילטרים והורדה */}
-              <div className="sidebar">
-                <div className="sidebar-section">
-                  <div className="sidebar-title">📥 ייצוא קובץ</div>
-                  <button 
-                    className="btn btn-primary btn-sidebar"
-                    onClick={exportResults}
-                    disabled={isLoading || currentGuestIndex === 0}
-                  >
-                    {isLoading ? '⏳ מייצא...' : '📥 הורד Excel'}
-                  </button>
-                  <div style={{ fontSize: '0.8rem', color: '#666', textAlign: 'center', marginTop: '8px' }}>
-                    {currentGuestIndex + 1} מוזמנים מעובדים
-                  </div>
-                </div>
-
-                <div className="sidebar-section">
-                  <div className="sidebar-title">🔍 פילטרים</div>
-                  
-                  <div className="filter-item">
-                    <label>צד:</label>
-                    <select 
-                      value={filters.side} 
-                      onChange={(e) => setFilters(prev => ({...prev, side: e.target.value}))}
-                    >
-                      <option value="">כל הצדדים</option>
-                      {getUniqueValues('צד').map(side => (
-                        <option key={side} value={side}>{side}</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="filter-item">
-                    <label>קבוצה:</label>
-                    <select 
-                      value={filters.group} 
-                      onChange={(e) => setFilters(prev => ({...prev, group: e.target.value}))}
-                    >
-                      <option value="">כל הקבוצות</option>
-                      {getUniqueValues('קבוצה').map(group => (
-                        <option key={group} value={group}>{group}</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="filter-item">
-                    <label>חיפוש:</label>
-                    <input 
-                      type="text" 
-                      placeholder="חפש מוזמן..."
-                      value={filters.searchTerm}
-                      onChange={(e) => setFilters(prev => ({...prev, searchTerm: e.target.value}))}
-                    />
-                  </div>
-                </div>
-
-                {!currentUser.isPro && (
-                  <div className="sidebar-section">
-                    <div className="sidebar-title">💎 שדרוג</div>
-                    <div style={{ 
-                      background: 'linear-gradient(135deg, #667eea, #764ba2)', 
-                      color: 'white', 
-                      padding: '15px', 
-                      borderRadius: '10px',
-                      textAlign: 'center',
-                      fontSize: '0.9rem'
-                    }}>
-                      <div style={{ marginBottom: '10px' }}>
-                        <strong>הגעת ל-{currentUser.dailyMatchesUsed}/{DAILY_LIMIT}</strong>
-                      </div>
-                      <div style={{ fontSize: '0.8rem', marginBottom: '15px' }}>
-                        שדרג לפרימיום בלי הגבלות!
-                      </div>
-                      <button 
-                        className="btn btn-primary btn-sidebar"
-                        onClick={() => showScreen('paymentScreen')}
-                        style={{ 
-                          background: 'rgba(255,255,255,0.2)', 
-                          border: '1px solid rgba(255,255,255,0.3)' 
-                        }}
-                      >
-                        💎 שדרג עכשיו
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              
             </div>
           )}
 
