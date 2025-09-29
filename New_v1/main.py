@@ -949,4 +949,4 @@ except Exception as e:
     logger.error(f"💥 CRITICAL ERROR during startup: {e}")
     import traceback
     logger.error(f"📍 Full traceback: {traceback.format_exc()}")
-    sys.exit(1)
+    sys.exit(1)# Backend Dockerfile
