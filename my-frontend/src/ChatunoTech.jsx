@@ -574,37 +574,37 @@ const ChatunoTech = () => {
 
   // Helper function to get relevant guest details
   const getRelevantGuestDetails = (guestDetails) => {
-    const relevantDetails = {};
-    
-    // Look for side information
-    const sideKeys = ['צד', 'side', 'חתן', 'כלה', 'groom', 'bride'];
-    for (const key of sideKeys) {
-      if (guestDetails[key]) {
-        relevantDetails['צד'] = guestDetails[key];
-        break;
-      }
+  const relevantDetails = {};
+  
+  // חיפוש חכם - רק מידע שבאמת עוזר
+  const sideKeys = ['צד', 'side', 'חתן', 'כלה', 'groom', 'bride'];
+  for (const key of sideKeys) {
+    if (guestDetails[key] && String(guestDetails[key]).trim()) {
+      relevantDetails['צד'] = guestDetails[key];
+      break;
     }
-    
-    // Look for group information
-    const groupKeys = ['קבוצה', 'group', 'קטגוריה', 'category', 'סוג', 'type', 'יחס', 'relation'];
-    for (const key of groupKeys) {
-      if (guestDetails[key]) {
-        relevantDetails['קבוצה'] = guestDetails[key];
-        break;
-      }
+  }
+  
+  const groupKeys = ['קבוצה', 'group', 'קטגוריה', 'category', 'סוג', 'type', 'יחס', 'relation', 'משפחה', 'חברים'];
+  for (const key of groupKeys) {
+    if (guestDetails[key] && String(guestDetails[key]).trim()) {
+      relevantDetails['קבוצה'] = guestDetails[key];
+      break;
     }
-    
-    // Look for quantity
-    const quantityKeys = ['כמות', 'quantity', 'מספר מוזמנים', 'אורחים'];
-    for (const key of quantityKeys) {
-      if (guestDetails[key]) {
-        relevantDetails['כמות'] = guestDetails[key];
-        break;
-      }
+  }
+  
+  const quantityKeys = ['כמות', 'quantity', 'מספר מוזמנים', 'אורחים', 'כמות מוזמנים'];
+  for (const key of quantityKeys) {
+    if (guestDetails[key] && String(guestDetails[key]).trim()) {
+      relevantDetails['כמות מוזמנים'] = guestDetails[key];
+      break;
     }
-    
-    return relevantDetails;
-  };
+  }
+  
+  // החזר רק מה שבאמת מלא
+  return Object.keys(relevantDetails).length > 0 ? relevantDetails : {};
+};
+
 
   return (
     <div>
@@ -1393,9 +1393,97 @@ const ChatunoTech = () => {
           )}
 
           {/* --- מסך התאמות --- */}
-          {currentScreen === 'matchingScreen' && (
-            <div className="matching-layout">
-              <div className="main-content">
+{currentScreen === 'matchingScreen' && (
+  <div className="matching-layout">
+    {/* סרגל צד עם פילטרים והורדה */}
+    <div className="sidebar">
+      <div className="sidebar-section">
+        <div className="sidebar-title">📥 ייצוא תוצאות</div>
+        <button 
+          className="btn btn-primary btn-sidebar"
+          onClick={exportResults}
+          disabled={isLoading || currentGuestIndex === 0}
+        >
+          {isLoading ? '⏳ מייצא...' : '📥 הורד Excel'}
+        </button>
+        <div style={{ fontSize: '0.8rem', color: '#666', textAlign: 'center', marginTop: '8px' }}>
+          {currentGuestIndex + 1} מוזמנים מעובדים
+        </div>
+      </div>
+
+      <div className="sidebar-section">
+        <div className="sidebar-title">🔍 פילטרים</div>
+        
+        <div className="filter-item">
+          <label>חיפוש מוזמן:</label>
+          <input 
+            type="text" 
+            placeholder="חפש שם..."
+            value={filters.searchTerm}
+            onChange={(e) => setFilters(prev => ({...prev, searchTerm: e.target.value}))}
+          />
+        </div>
+        
+        <div className="filter-item">
+          <label>צד:</label>
+          <select 
+            value={filters.side} 
+            onChange={(e) => setFilters(prev => ({...prev, side: e.target.value}))}
+          >
+            <option value="">כל הצדדים</option>
+            {getUniqueValues('צד').map(side => (
+              <option key={side} value={side}>{side}</option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="filter-item">
+          <label>קבוצה:</label>
+          <select 
+            value={filters.group} 
+            onChange={(e) => setFilters(prev => ({...prev, group: e.target.value}))}
+          >
+            <option value="">כל הקבוצות</option>
+            {getUniqueValues('קבוצה').map(group => (
+              <option key={group} value={group}>{group}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {!currentUser.isPro && (
+        <div className="sidebar-section">
+          <div className="sidebar-title">💎 שדרוג</div>
+          <div style={{ 
+            background: 'linear-gradient(135deg, #667eea, #764ba2)', 
+            color: 'white', 
+            padding: '15px', 
+            borderRadius: '10px',
+            textAlign: 'center',
+            fontSize: '0.9rem'
+          }}>
+            <div style={{ marginBottom: '10px' }}>
+              <strong>{currentUser.dailyMatchesUsed}/{DAILY_LIMIT}</strong>
+            </div>
+            <div style={{ fontSize: '0.8rem', marginBottom: '15px' }}>
+              שדרג לפרימיום ללא הגבלות!
+            </div>
+            <button 
+              className="btn btn-primary btn-sidebar"
+              onClick={() => showScreen('paymentScreen')}
+              style={{ 
+                background: 'rgba(255,255,255,0.2)', 
+                border: '1px solid rgba(255,255,255,0.3)' 
+              }}
+            >
+              💎 שדרג עכשיו
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+
+    <div className="main-content">
                 <h2>🎯 התאמות שנמצאו</h2>
 
                 {matchingResults.length > 0 && (
@@ -1443,90 +1531,145 @@ const ChatunoTech = () => {
                     </div>
                     
                     {/* מועמדים */}
-                    {matchingResults[currentGuestIndex].candidates?.length > 0 ? (
-                      matchingResults[currentGuestIndex].candidates.map((candidate, index) => (
-                        <div 
-                          key={index} 
-                          className={`candidate-card ${
-                            selectedContacts[matchingResults[currentGuestIndex].guest]?.name === candidate.name &&
-                            selectedContacts[matchingResults[currentGuestIndex].guest]?.phone === candidate.phone ? 
-                            'selected' : ''
-                          }`}
-                          onClick={() => selectCandidate(candidate)}
-                        >
-                          <div className="candidate-info">
-                            <div className="candidate-name">{candidate.name}</div>
-                            <div className="candidate-phone">{candidate.phone}</div>
+                    <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+                      {matchingResults[currentGuestIndex].candidates?.length > 0 ? (
+                        matchingResults[currentGuestIndex].candidates.map((candidate, index) => (
+                          <div 
+                            key={index} 
+                            className={`candidate-card ${
+                              selectedContacts[matchingResults[currentGuestIndex].guest]?.name === candidate.name &&
+                              selectedContacts[matchingResults[currentGuestIndex].guest]?.phone === candidate.phone ? 
+                              'selected' : ''
+                            }`}
+                            onClick={() => selectCandidate(candidate)}
+                          >
+                            <div className="candidate-info">
+                              <div className="candidate-name">{candidate.name}</div>
+                              <div className="candidate-phone">{candidate.phone}</div>
+                            </div>
                           </div>
-                          <div className="candidate-score">
-                            {candidate.score}%
-                          </div>
+                        ))
+                      ) : (
+                        <div className="status-message status-warning">
+                          ⚠️ לא נמצאו התאמות למוזמן זה
                         </div>
-                      ))
-                    ) : (
-                      <div className="status-message status-warning">
-                        ⚠️ לא נמצאו התאמות למוזמן זה
-                      </div>
-                    )}
+                      )}
+                    </div>
                     
                     {/* כפתור הוספת איש קשר */}
-                    <div className="add-contact-option" onClick={() => setShowAddContact(!showAddContact)}>
-                      <strong>➕ הוסף איש קשר אחר</strong>
-                      <br />
-                      <small>חפש באנשי קשר או הוסף מספר ידנית</small>
-                    </div>
+                    <div style={{ maxWidth: '600px', margin: '15px auto' }}>
+                      <button 
+                        className="btn btn-secondary"
+                        onClick={() => setShowAddContact(!showAddContact)}
+                        style={{ 
+                          width: '100%',
+                          background: showAddContact ? '#e9ecef' : 'white',
+                          borderColor: showAddContact ? 'var(--teal-green)' : '#e1e8ed'
+                        }}
+                      >
+                        ➕ הוסף איש קשר אחר
+                      </button>
 
-                    {/* אפשרויות הוספה */}
-                    {showAddContact && (
-                      <div className="add-contact-section">
-                        <div className="add-contact-inputs">
-                          <div>
-                            <label style={{ fontSize: '0.9rem', marginBottom: '5px' }}>🔍 חפש באנשי קשר</label>
+                      {/* אפשרויות הוספה - רק כשפתוח */}
+                      {showAddContact && (
+                        <div style={{
+                          background: '#f8f9fa',
+                          borderRadius: '12px',
+                          padding: '15px',
+                          marginTop: '10px',
+                          border: '2px solid #e1e8ed'
+                        }}>
+                          {/* שורה 1: חיפוש */}
+                          <div style={{ 
+                            display: 'flex', 
+                            gap: '10px', 
+                            marginBottom: '12px',
+                            alignItems: 'center' 
+                          }}>
                             <input
                               type="text"
-                              placeholder="הזן שם לחיפוש..."
+                              placeholder="🔍 חפש שם באנשי קשר..."
                               value={searchInContacts}
                               onChange={(e) => setSearchInContacts(e.target.value)}
-                              style={{ margin: '5px 0', padding: '10px', fontSize: '0.9rem' }}
+                              style={{ 
+                                flex: 1,
+                                padding: '10px 12px',
+                                border: '1px solid #ddd',
+                                borderRadius: '8px',
+                                fontSize: '0.9rem'
+                              }}
+                              onKeyPress={(e) => {
+                                if (e.key === 'Enter' && searchInContacts.trim()) {
+                                  searchAndSelectContact();
+                                }
+                              }}
                             />
-                          </div>
-                          
-                          <div>
-                            <label style={{ fontSize: '0.9rem', marginBottom: '5px' }}>📞 או הוסף מספר ידנית</label>
-                            <input
-                              type="tel"
-                              placeholder="05X-XXXXXXX"
-                              value={manualPhone}
-                              onChange={(e) => setManualPhone(e.target.value)}
-                              style={{ margin: '5px 0', padding: '10px', fontSize: '0.9rem' }}
-                            />
-                          </div>
-                          
-                          <div className="add-contact-buttons">
                             <button 
-                              className="btn btn-secondary btn-small"
+                              className="btn btn-primary btn-small"
                               onClick={searchAndSelectContact}
                               disabled={!searchInContacts.trim()}
+                              style={{ minWidth: '80px' }}
                             >
-                              🔍 חפש
+                              חפש
                             </button>
+                          </div>
+                          
+                          {/* קו מפריד */}
+                          <div style={{ 
+                            borderTop: '1px solid #ddd',
+                            margin: '12px 0',
+                            position: 'relative'
+                          }}>
+                            <span style={{
+                              position: 'absolute',
+                              top: '-10px',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              background: '#f8f9fa',
+                              padding: '0 10px',
+                              color: '#999',
+                              fontSize: '0.8rem'
+                            }}>או</span>
+                          </div>
+                          
+                          {/* שורה 2: הוספה ידנית */}
+                          <div style={{ 
+                            display: 'flex', 
+                            gap: '10px',
+                            alignItems: 'center'
+                          }}>
+                            <input
+                              type="tel"
+                              placeholder="📞 הוסף מספר: 05X-XXXXXXX"
+                              value={manualPhone}
+                              onChange={(e) => setManualPhone(e.target.value)}
+                              style={{ 
+                                flex: 1,
+                                padding: '10px 12px',
+                                border: '1px solid #ddd',
+                                borderRadius: '8px',
+                                fontSize: '0.9rem',
+                                direction: 'ltr',
+                                textAlign: 'center'
+                              }}
+                              onKeyPress={(e) => {
+                                if (e.key === 'Enter' && manualPhone.trim()) {
+                                  addManualContact();
+                                }
+                              }}
+                            />
                             <button 
-                              className="btn btn-secondary btn-small"
+                              className="btn btn-primary btn-small"
                               onClick={addManualContact}
                               disabled={!manualPhone.trim()}
+                              style={{ minWidth: '80px' }}
                             >
-                              📞 הוסף
-                            </button>
-                            <button 
-                              className="btn btn-secondary btn-small"
-                              onClick={() => setShowAddContact(false)}
-                            >
-                              ✕ סגור
+                              הוסף
                             </button>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                     
                     {/* כפתור "לא נמצא" */}
                     <div 
