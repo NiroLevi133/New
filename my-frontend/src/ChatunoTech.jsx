@@ -1189,7 +1189,7 @@ const ChatunoTech = () => {
           {/* --- דף נחיתה --- */}
           {currentScreen === 'landingPage' && (
             <div style={{ textAlign: 'center' }}>
-              <h2>🎯 מערכת התאמת מוזמנים חכמה</h2>
+              <h2>🎯🎯🎯 מערכת התאמת מוזמנים חכמה</h2>
               <p>מערכת חכמה שמתאמת אוטומטית בין רשימת המוזמנים לרשימת אנשי הקשר שלך.</p>
               <div style={{ 
                 background: 'linear-gradient(135deg, rgba(42, 157, 143, 0.1), rgba(244, 162, 97, 0.1))', 
