@@ -577,89 +577,94 @@ try:
             logger.error(f"Merge files error: {e}")
             raise HTTPException(status_code=500, detail=f"שגיאה בעיבוד הקבצים: {str(e)}")
 
-    @app.post("/export-results")
-    async def export_results(data: dict):
-        """ייצוא תוצאות לקובץ Excel עם תמיכה בייצוא חלקי"""
-        if not LOGIC_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Logic module not available")
-        
-        results = data.get("results", [])
-        selected_contacts = data.get("selected_contacts", {})
-        export_type = data.get("export_type", "full")  # "full" or "partial"
-        
-        if not results:
-            raise HTTPException(status_code=400, detail="No results provided")
-        
-        try:
-            logger.info(f"Exporting {len(results)} guests with {len(selected_contacts)} selections")
+        @app.post("/export-results")
+        async def export_results(data: dict):
+            """ייצוא תוצאות - הקובץ המקורי + עמודת טלפון"""
+            if not LOGIC_AVAILABLE:
+                raise HTTPException(status_code=500, detail="Logic module not available")
             
-            export_data = []
+            results = data.get("results", [])
+            selected_contacts = data.get("selected_contacts", {})
+            original_guests_data = data.get("original_guests_data", [])
             
-            for result in results:
-                guest_name = result["guest"]
-                guest_details = result["guest_details"]
+            if not results:
+                raise HTTPException(status_code=400, detail="No results provided")
+            
+            try:
+                logger.info(f"Exporting {len(results)} guests with {len(selected_contacts)} selections")
                 
-                # התחל עם פרטי המוזמן - רק השדות הרלוונטיים
-                row_data = {}
+                export_data = []
                 
-                # שם מלא תמיד ראשון
-                row_data[NAME_COL] = guest_name
+                for result in results:
+                    guest_name = result["guest"]
+                    guest_details = result.get("guest_details", {})
+                    
+                    # התחל עם כל הפרטים המקוריים של המוזמן
+                    row_data = dict(guest_details)
+                    
+                    # וודא ששם מלא קיים
+                    if NAME_COL not in row_data or not row_data[NAME_COL]:
+                        row_data[NAME_COL] = guest_name
+                    
+                    # הוסף/עדכן את עמודת הטלפון
+                    selected_contact = selected_contacts.get(guest_name)
+                    if selected_contact and not selected_contact.get("isNotFound"):
+                        # אם יש עמודת טלפון קיימת - עדכן אותה
+                        # אם אין - תיווצר אוטומטית בסוף
+                        row_data[PHONE_COL] = selected_contact.get("phone", "")
+                    else:
+                        # לא נמצא - השאר ריק
+                        row_data[PHONE_COL] = ""
+                    
+                    export_data.append(row_data)
                 
-                # הוסף רק שדות רלוונטיים
-                relevant_details = extract_relevant_guest_details(pd.Series(guest_details))
-                row_data.update(relevant_details)
+                # יצירת DataFrame
+                export_df = pd.DataFrame(export_data)
                 
-                # הוסף מידע על איש הקשר שנבחר
-                selected_contact = selected_contacts.get(guest_name)
-                if selected_contact and not selected_contact.get("isNotFound"):
-                    row_data["טלפון נבחר"] = selected_contact.get("phone", "")
-                    row_data["שם איש קשר"] = selected_contact.get("name", "")
-                    row_data["ציון התאמה"] = selected_contact.get("score", "")
-                    row_data["סטטוס"] = "נמצא"
-                else:
-                    row_data["טלפון נבחר"] = ""
-                    row_data["שם איש קשר"] = "לא נמצא"
-                    row_data["ציון התאמה"] = ""
-                    row_data["סטטוס"] = "לא נמצא"
+                # מחק עמודות פנימיות אם קיימות
+                columns_to_remove = ["norm_name", "score", "best_score", "סטטוס", "ציון התאמה"]
+                export_df = export_df.drop(columns=[col for col in columns_to_remove if col in export_df.columns], errors="ignore")
                 
-                export_data.append(row_data)
-            
-            # יצירת DataFrame וייצוא
-            export_df = pd.DataFrame(export_data)
-            excel_buffer = to_buf(export_df)
-            
-            filename = f"guests_with_contacts_{export_type}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            
-            logger.info("Export completed successfully")
-            
-            return StreamingResponse(
-                BytesIO(excel_buffer.getvalue()),
-                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={"Content-Disposition": f"attachment; filename={filename}"}
-            )
-            
-        except Exception as e:
-            logger.error(f"Export error: {e}")
-            raise HTTPException(status_code=500, detail=f"שגיאה בייצוא: {str(e)}")
+                # סדר עמודות: כל העמודות המקוריות, טלפון בסוף
+                if PHONE_COL in export_df.columns:
+                    cols = [col for col in export_df.columns if col != PHONE_COL]
+                    cols.append(PHONE_COL)
+                    export_df = export_df[cols]
+                
+                excel_buffer = to_buf(export_df)
+                
+                filename = f"guests_with_contacts_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                
+                logger.info("Export completed successfully")
+                
+                return StreamingResponse(
+                    BytesIO(excel_buffer.getvalue()),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f"attachment; filename={filename}"}
+                )
+                
+            except Exception as e:
+                logger.error(f"Export error: {e}")
+                raise HTTPException(status_code=500, detail=f"שגיאה בייצוא: {str(e)}")
 
-    @app.get("/download-contacts-template")
-    async def download_contacts_template():
-        """הורדת קובץ דוגמה לאנשי קשר"""
-        if not LOGIC_AVAILABLE:
-            raise HTTPException(status_code=500, detail="Logic module not available")
-            
-        try:
-            template_df = create_contacts_template()
-            excel_buffer = to_buf(template_df)
-            
-            return StreamingResponse(
-                BytesIO(excel_buffer.getvalue()),
-                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={"Content-Disposition": "attachment; filename=contacts_template.xlsx"}
-            )
-        except Exception as e:
-            logger.error(f"Template creation error: {e}")
-            raise HTTPException(status_code=500, detail=f"שגיאה ביצירת התבנית: {str(e)}")
+        @app.get("/download-contacts-template")
+        async def download_contacts_template():
+            """הורדת קובץ דוגמה לאנשי קשר"""
+            if not LOGIC_AVAILABLE:
+                raise HTTPException(status_code=500, detail="Logic module not available")
+                
+            try:
+                template_df = create_contacts_template()
+                excel_buffer = to_buf(template_df)
+                
+                return StreamingResponse(
+                    BytesIO(excel_buffer.getvalue()),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment; filename=contacts_template.xlsx"}
+                )
+            except Exception as e:
+                logger.error(f"Template creation error: {e}")
+                raise HTTPException(status_code=500, detail=f"שגיאה ביצירת התבנית: {str(e)}")
 
     @app.get("/download-guests-template")
     async def download_guests_template():

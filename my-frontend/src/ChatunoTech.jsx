@@ -37,6 +37,8 @@ const ChatunoTech = () => {
   const [manualPhone, setManualPhone] = useState('');
   const [searchInContacts, setSearchInContacts] = useState('');
   const [supportsMobileContacts, setSupportsMobileContacts] = useState(false);
+  const [searchSuggestions, setSearchSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Auth
   const [phoneValue, setPhoneValue] = useState('');
@@ -351,41 +353,59 @@ const ChatunoTech = () => {
     showMessage('✅ מספר נוסף בהצלחה!', 'success');
   };
 
-  // חיפוש באנשי קשר
-  const searchAndSelectContact = () => {
-    if (!searchInContacts.trim()) {
-      showMessage('אנא הזן שם לחיפוש', 'error');
+    // חיפוש באנשי קשר עם השלמה אוטומטית
+  const handleSearchInput = (value) => {
+    setSearchInContacts(value);
+    
+    if (value.length < 2) {
+      setSearchSuggestions([]);
+      setShowSuggestions(false);
       return;
     }
 
-    const searchTerm = searchInContacts.toLowerCase();
+    const searchTerm = value.toLowerCase();
     let contactsToSearch = [];
 
+    // איסוף כל אנשי הקשר
     if (contactsSource === 'mobile') {
       contactsToSearch = mobileContacts;
     } else {
-      // חיפוש בכל אנשי הקשר מהקובץ
+      const uniqueContacts = new Map();
       matchingResults.forEach(result => {
         if (result.candidates) {
-          contactsToSearch = [...contactsToSearch, ...result.candidates];
+          result.candidates.forEach(candidate => {
+            const key = `${candidate.name}_${candidate.phone}`;
+            if (!uniqueContacts.has(key)) {
+              uniqueContacts.set(key, candidate);
+            }
+          });
         }
       });
+      contactsToSearch = Array.from(uniqueContacts.values());
     }
 
-    const foundContact = contactsToSearch.find(contact => 
-      contact.name.toLowerCase().includes(searchTerm)
-    );
+    // סינון תוצאות
+    const filtered = contactsToSearch
+      .filter(contact => 
+        contact.name.toLowerCase().includes(searchTerm) ||
+        contact.phone.includes(value)
+      )
+      .slice(0, 5); // הגבל ל-5 תוצאות
 
-    if (foundContact) {
-      const selectedContact = {
-        ...foundContact,
-        reason: 'נמצא בחיפוש ידני'
-      };
-      selectCandidate(selectedContact);
-      showMessage(`✅ נמצא: ${foundContact.name}`, 'success');
-    } else {
-      showMessage('❌ לא נמצא איש קשר עם השם הזה', 'error');
-    }
+    setSearchSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
+  };
+
+  const selectFromSuggestion = (contact) => {
+    const selectedContact = {
+      ...contact,
+      reason: 'נמצא בחיפוש ידני'
+    };
+    selectCandidate(selectedContact);
+    setSearchInContacts('');
+    setShowSuggestions(false);
+    setSearchSuggestions([]);
+    showMessage(`✅ נבחר: ${contact.name}`, 'success');
   };
 
   const nextGuest = async () => {
@@ -848,13 +868,14 @@ const ChatunoTech = () => {
         }
 
         .guest-card {
-          background: linear-gradient(135deg, var(--teal-green), var(--orange-gold));
-          color: white;
-          border-radius: 20px;
-          padding: 25px;
-          margin-bottom: 25px;
-          box-shadow: 0 8px 25px rgba(42, 157, 143, 0.3);
-        }
+        background: #f8f9fa;
+        color: #333;
+        border-radius: 15px;
+        padding: 20px;
+        margin-bottom: 25px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+        border: 2px solid #e1e8ed;
+      }
 
         .guest-header {
           display: flex;
@@ -866,8 +887,10 @@ const ChatunoTech = () => {
 
         .guest-name {
           font-size: 1.4rem;
+          color: #333;
+          margin-bottom: 15px;
           font-weight: 700;
-          margin: 0;
+          text-align: center;
         }
 
         .guest-progress {
@@ -885,21 +908,29 @@ const ChatunoTech = () => {
         }
 
         .detail-item {
-          background: rgba(255, 255, 255, 0.15);
-          padding: 10px;
+          background: white;
+          padding: 12px 15px;
           border-radius: 10px;
+          border: 1px solid #ddd;
+          flex: 1;
+          min-width: 120px;
           text-align: center;
-        }
+          box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
 
         .detail-label {
+          font-weight: 600;
+          color: #666;
           font-size: 0.8rem;
-          opacity: 0.9;
-          margin-bottom: 4px;
+          margin-bottom: 3px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
         }
 
         .detail-value {
+          color: #333;
+          font-size: 0.95rem;
           font-weight: 600;
-          font-size: 0.9rem;
         }
 
         .candidate-card {
@@ -931,6 +962,41 @@ const ChatunoTech = () => {
           box-shadow: 0 0 20px rgba(0, 255, 136, 0.6), 0 0 40px rgba(0, 255, 136, 0.3);
           transform: translateY(-2px) scale(1.02);
           animation: pulseGreen 2s infinite;
+        }
+
+        @keyframes pulseGreen {
+          0%, 100% {
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.6), 0 0 40px rgba(0, 255, 136, 0.3);
+          }
+          50% {
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.8), 0 0 60px rgba(0, 255, 136, 0.5);
+          }
+        }
+
+        .candidate-info {
+          flex: 1;
+        }
+
+        .candidate-name {
+          font-weight: 600;
+          color: var(--dark-text);
+          font-size: 0.95rem;
+          margin-bottom: 2px;
+        }
+
+        .candidate-phone {
+          font-size: 0.85rem;
+          color: #666;
+          direction: ltr;
+          text-align: right;
+        }
+
+        .candidate-score {
+          color: var(--teal-green);
+          font-weight: 600;
+          font-size: 0.9rem;
+          min-width: 50px;
+          text-align: center;
         }
 
         @keyframes pulseGreen {
@@ -1413,22 +1479,28 @@ const ChatunoTech = () => {
     {/* סרגל צד עם פילטרים והורדה */}
     <div className="sidebar">
       <div className="sidebar-section">
-        <div className="sidebar-title">📥 ייצוא תוצאות</div>
+        <div className="sidebar-title">📥 ייצוא</div>
         <button 
           className="btn btn-primary btn-sidebar"
           onClick={exportResults}
           disabled={isLoading || currentGuestIndex === 0}
+          style={{ 
+            padding: '10px 15px', 
+            fontSize: '0.85rem',
+            minHeight: 'auto'
+          }}
         >
-          {isLoading ? '⏳ מייצא...' : '📥 הורד Excel'}
+          {isLoading ? '⏳ מייצא...' : '📥 הורד'}
         </button>
-        <div style={{ fontSize: '0.8rem', color: '#666', textAlign: 'center', marginTop: '8px' }}>
-          {currentGuestIndex + 1} מוזמנים מעובדים
-        </div>
-      </div>
+              <div style={{ fontSize: '0.8rem', color: '#666', textAlign: 'center', marginTop: '8px' }}>
+                {currentGuestIndex + 1} מוזמנים מעובדים
+              </div>
+            </div>
 
       <div className="sidebar-section">
         <div className="sidebar-title">🔍 פילטרים</div>
         
+        {/* חיפוש - תמיד קיים */}
         <div className="filter-item">
           <label>חיפוש מוזמן:</label>
           <input 
@@ -1439,31 +1511,37 @@ const ChatunoTech = () => {
           />
         </div>
         
-        <div className="filter-item">
-          <label>צד:</label>
-          <select 
-            value={filters.side} 
-            onChange={(e) => setFilters(prev => ({...prev, side: e.target.value}))}
-          >
-            <option value="">כל הצדדים</option>
-            {getUniqueValues('צד').map(side => (
-              <option key={side} value={side}>{side}</option>
-            ))}
-          </select>
-        </div>
+        {/* פילטר צד - רק אם יש ערכים */}
+        {getUniqueValues('צד').length > 0 && (
+          <div className="filter-item">
+            <label>צד:</label>
+            <select 
+              value={filters.side} 
+              onChange={(e) => setFilters(prev => ({...prev, side: e.target.value}))}
+            >
+              <option value="">כל הצדדים</option>
+              {getUniqueValues('צד').map(side => (
+                <option key={side} value={side}>{side}</option>
+              ))}
+            </select>
+          </div>
+        )}
         
-        <div className="filter-item">
-          <label>קבוצה:</label>
-          <select 
-            value={filters.group} 
-            onChange={(e) => setFilters(prev => ({...prev, group: e.target.value}))}
-          >
-            <option value="">כל הקבוצות</option>
-            {getUniqueValues('קבוצה').map(group => (
-              <option key={group} value={group}>{group}</option>
-            ))}
-          </select>
-        </div>
+        {/* פילטר קבוצה - רק אם יש ערכים */}
+        {getUniqueValues('קבוצה').length > 0 && (
+          <div className="filter-item">
+            <label>קבוצה:</label>
+            <select 
+              value={filters.group} 
+              onChange={(e) => setFilters(prev => ({...prev, group: e.target.value}))}
+            >
+              <option value="">כל הקבוצות</option>
+              {getUniqueValues('קבוצה').map(group => (
+                <option key={group} value={group}>{group}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {!currentUser.isPro && (
@@ -1545,7 +1623,7 @@ const ChatunoTech = () => {
                       </div>
                     </div>
                     
-                    {/* מועמדים */}
+                    {/* 1️⃣ קודם - כל המועמדים */}
                     <div style={{ maxWidth: '600px', margin: '0 auto' }}>
                       {matchingResults[currentGuestIndex].candidates?.length > 0 ? (
                         matchingResults[currentGuestIndex].candidates.map((candidate, index) => (
@@ -1557,10 +1635,24 @@ const ChatunoTech = () => {
                               'selected' : ''
                             }`}
                             onClick={() => selectCandidate(candidate)}
+                            style={{
+                              background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1))',
+                              borderColor: selectedContacts[matchingResults[currentGuestIndex].guest]?.name === candidate.name &&
+                                          selectedContacts[matchingResults[currentGuestIndex].guest]?.phone === candidate.phone ?
+                                          '#00ff88' : 'var(--teal-green)'
+                            }}
                           >
                             <div className="candidate-info">
                               <div className="candidate-name">{candidate.name}</div>
                               <div className="candidate-phone">{candidate.phone}</div>
+                              {candidate.reason && (
+                                <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '3px' }}>
+                                  {candidate.reason}
+                                </div>
+                              )}
+                            </div>
+                            <div className="candidate-score">
+                              {candidate.score ? `${Math.round(candidate.score)}%` : ''}
                             </div>
                           </div>
                         ))
@@ -1570,16 +1662,18 @@ const ChatunoTech = () => {
                         </div>
                       )}
                     </div>
-                    
-                    {/* כפתור הוספת איש קשר */}
-                    <div style={{ maxWidth: '600px', margin: '15px auto' }}>
+
+                    {/* 2️⃣ אחר כך - כפתור הוספת איש קשר */}
+                    <div style={{ maxWidth: '600px', margin: '20px auto' }}>
                       <button 
                         className="btn btn-secondary"
                         onClick={() => setShowAddContact(!showAddContact)}
                         style={{ 
                           width: '100%',
                           background: showAddContact ? '#e9ecef' : 'white',
-                          borderColor: showAddContact ? 'var(--teal-green)' : '#e1e8ed'
+                          borderColor: showAddContact ? 'var(--teal-green)' : '#e1e8ed',
+                          padding: '12px 20px',
+                          fontSize: '0.95rem'
                         }}
                       >
                         ➕ הוסף איש קשר אחר
@@ -1594,39 +1688,72 @@ const ChatunoTech = () => {
                           marginTop: '10px',
                           border: '2px solid #e1e8ed'
                         }}>
-                          {/* שורה 1: חיפוש */}
+                          {/* שורה 1: חיפוש עם השלמה אוטומטית */}
                           <div style={{ 
                             display: 'flex', 
                             gap: '10px', 
                             marginBottom: '12px',
-                            alignItems: 'center' 
+                            alignItems: 'center',
+                            position: 'relative'
                           }}>
-                            <input
-                              type="text"
-                              placeholder="🔍 חפש שם באנשי קשר..."
-                              value={searchInContacts}
-                              onChange={(e) => setSearchInContacts(e.target.value)}
-                              style={{ 
-                                flex: 1,
-                                padding: '10px 12px',
-                                border: '1px solid #ddd',
-                                borderRadius: '8px',
-                                fontSize: '0.9rem'
-                              }}
-                              onKeyPress={(e) => {
-                                if (e.key === 'Enter' && searchInContacts.trim()) {
-                                  searchAndSelectContact();
-                                }
-                              }}
-                            />
-                            <button 
-                              className="btn btn-primary btn-small"
-                              onClick={searchAndSelectContact}
-                              disabled={!searchInContacts.trim()}
-                              style={{ minWidth: '80px' }}
-                            >
-                              חפש
-                            </button>
+                            <div style={{ flex: 1, position: 'relative' }}>
+                              <input
+                                type="text"
+                                placeholder="🔍 חפש שם באנשי קשר (2+ אותיות)..."
+                                value={searchInContacts}
+                                onChange={(e) => handleSearchInput(e.target.value)}
+                                onFocus={() => {
+                                  if (searchSuggestions.length > 0) setShowSuggestions(true);
+                                }}
+                                style={{ 
+                                  width: '100%',
+                                  padding: '10px 12px',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '8px',
+                                  fontSize: '0.9rem'
+                                }}
+                              />
+                              
+                              {/* רשימת הצעות */}
+                              {showSuggestions && searchSuggestions.length > 0 && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: 0,
+                                  right: 0,
+                                  background: 'white',
+                                  border: '2px solid var(--teal-green)',
+                                  borderRadius: '8px',
+                                  marginTop: '5px',
+                                  maxHeight: '200px',
+                                  overflowY: 'auto',
+                                  zIndex: 1000,
+                                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                                }}>
+                                  {searchSuggestions.map((contact, index) => (
+                                    <div
+                                      key={index}
+                                      onClick={() => selectFromSuggestion(contact)}
+                                      style={{
+                                        padding: '10px 12px',
+                                        cursor: 'pointer',
+                                        borderBottom: index < searchSuggestions.length - 1 ? '1px solid #eee' : 'none',
+                                        transition: 'background 0.2s ease'
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.background = '#f0f4ff'}
+                                      onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                    >
+                                      <div style={{ fontWeight: '600', color: '#333', marginBottom: '3px' }}>
+                                        {contact.name}
+                                      </div>
+                                      <div style={{ fontSize: '0.85rem', color: '#666', direction: 'ltr', textAlign: 'right' }}>
+                                        {contact.phone}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
                           
                           {/* קו מפריד */}
@@ -1648,11 +1775,7 @@ const ChatunoTech = () => {
                           </div>
                           
                           {/* שורה 2: הוספה ידנית */}
-                          <div style={{ 
-                            display: 'flex', 
-                            gap: '10px',
-                            alignItems: 'center'
-                          }}>
+                          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                             <input
                               type="tel"
                               placeholder="📞 הוסף מספר: 05X-XXXXXXX"
@@ -1685,24 +1808,34 @@ const ChatunoTech = () => {
                         </div>
                       )}
                     </div>
-                    
-                    {/* כפתור "לא נמצא" */}
-                    <div 
-                      className={`candidate-card ${
-                        selectedContacts[matchingResults[currentGuestIndex].guest]?.isNotFound ? 'selected' : ''
-                      }`}
-                      style={{ border: '2px dashed #ccc' }}
-                      onClick={() => selectCandidate({ 
-                        name: 'לא נמצא', 
-                        phone: '', 
-                        score: 0, 
-                        reason: 'לא נמצא',
-                        isNotFound: true 
-                      })}
-                    >
-                      <div className="candidate-info">
-                        <div className="candidate-name">❌ לא נמצא איש קשר מתאים</div>
-                        <div className="candidate-phone">המוזמן יישאר ללא מספר טלפון</div>
+
+                    {/* 3️⃣ בסוף - כפתור "בחר אחר כך" */}
+                    <div style={{ maxWidth: '600px', margin: '15px auto' }}>
+                      <div 
+                        className={`candidate-card ${
+                          selectedContacts[matchingResults[currentGuestIndex].guest]?.isNotFound ? 'selected' : ''
+                        }`}
+                        style={{ 
+                          border: '2px dashed #ccc',
+                          background: selectedContacts[matchingResults[currentGuestIndex].guest]?.isNotFound ? 
+                                      'rgba(255, 193, 7, 0.1)' : '#fafafa',
+                          borderColor: selectedContacts[matchingResults[currentGuestIndex].guest]?.isNotFound ? 
+                                      '#ffc107' : '#ccc'
+                        }}
+                        onClick={() => selectCandidate({ 
+                          name: 'לא נמצא', 
+                          phone: '', 
+                          score: 0, 
+                          reason: 'לא נמצא',
+                          isNotFound: true 
+                        })}
+                      >
+                        <div className="candidate-info">
+                          <div className="candidate-name">⏭️ בחר אחר כך / לא מצאתי תוצאה</div>
+                          <div className="candidate-phone" style={{ color: '#999' }}>
+                            המוזמן יישאר ללא מספר טלפון בינתיים
+                          </div>
+                        </div>
                       </div>
                     </div>
                     
