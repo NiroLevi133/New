@@ -501,11 +501,14 @@ def top_matches(guest_norm: str, contacts_df: pd.DataFrame) -> pd.DataFrame:
             .copy()
         )
 
-    # הוסף reason
-    candidates["reason"] = candidates.apply(
-        lambda row: reason_for(guest_norm, row["norm_name"], row["score"]),
-        axis=1
-    )
+    # הוסף reason - תיקון: צור Series חדש במקום apply
+    if len(candidates) > 0:
+        reason_series = candidates.apply(
+            lambda row: reason_for(guest_norm, row["norm_name"], row["score"]),
+            axis=1
+        )
+        candidates = candidates.copy()
+        candidates["reason"] = reason_series
 
     return candidates
 
