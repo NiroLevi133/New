@@ -1,13 +1,43 @@
-# logic.py – מערכת התאמת מוזמנים מתקדמת (מעודכן)
-"""שדרוג אלגוריתם התאמת השמות עם פיצ'רים מתקדמים
-----------------------------------------------------------------
-* אלגוריתם התאמה משופר (3 רכיבים משוקללים)
-* ניקוי טוקנים מתקדם (סיומות, ו' חיבור)
-* זיהוי שם מלא חכם (שם פרטי + משפחה)
-* חילוץ כמות מטקסט
-* Fuzzy Jaccard
-* בחירה אוטומטית מעל 93%
-"""
+# ─────────── ייצוא כל הפונקציות והקבועים הדרושים ל-main.py ───────────
+
+__all__ = [
+    # פונקציות עיבוד קבצים
+    'load_excel_flexible',
+    'load_mobile_contacts',
+    'load_excel',
+    
+    # פונקציות התאמות
+    'top_matches',
+    'full_score',
+    'process_matching_results',
+    'compute_best_scores',
+    'extract_relevant_guest_details',
+    
+    # פונקציות בדיקה
+    'validate_dataframes',
+    'is_user_authorized',
+    
+    # פונקציות ייצוא
+    'to_buf',
+    'create_contacts_template',
+    'create_guests_template',
+    
+    # פונקציות עזר
+    'format_phone',
+    'normalize',
+    'reason_for',
+    
+    # קבועים
+    'NAME_COL',
+    'PHONE_COL',
+    'COUNT_COL',
+    'SIDE_COL',
+    'GROUP_COL',
+    'AUTO_SCORE',
+    'AUTO_SELECT_TH',  # 🔥 חשוב!
+    'MIN_SCORE_DISPLAY',
+    'MAX_DISPLAYED',
+]
 
 from __future__ import annotations
 
@@ -668,6 +698,36 @@ def _load_allowed_from_excel() -> set[str]:
     allowed = {only_digits(str(v)) for v in df[phone_col] if only_digits(str(v))}
     logging.info("Loaded %d allowed phones from local Excel.", len(allowed))
     return allowed
+
+# logic.py - נוסיף פונקציה לבדיקת תקינות
+def validate_dataframes(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> tuple[bool, str]:
+    """בודק שה-DataFrames תקינים לפני עיבוד"""
+    
+    # בדיקת מוזמנים
+    if guests_df is None or len(guests_df) == 0:
+        return False, "קובץ המוזמנים ריק או לא תקין"
+    
+    if NAME_COL not in guests_df.columns:
+        return False, f"חסרה עמודה '{NAME_COL}' בקובץ המוזמנים"
+    
+    if "norm_name" not in guests_df.columns:
+        return False, "שגיאת עיבוד - חסרה נורמליזציה של שמות מוזמנים"
+    
+    # בדיקת אנשי קשר
+    if contacts_df is None or len(contacts_df) == 0:
+        return False, "קובץ אנשי הקשר ריק או לא תקין"
+    
+    if NAME_COL not in contacts_df.columns:
+        return False, f"חסרה עמודה '{NAME_COL}' בקובץ אנשי הקשר"
+    
+    if PHONE_COL not in contacts_df.columns:
+        return False, f"חסרה עמודה '{PHONE_COL}' בקובץ אנשי הקשר"
+    
+    if "norm_name" not in contacts_df.columns:
+        return False, "שגיאת עיבוד - חסרה נורמליזציה של שמות אנשי קשר"
+    
+    return True, "OK"
+
 
 def is_user_authorized(phone: str) -> bool:
     """True אם המספר מופיע ברשימת המורשים"""

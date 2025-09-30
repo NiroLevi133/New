@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
+"""
+==============================================
+    Guest Matcher API - Main Application
+==============================================
+מערכת התאמת מוזמנים לאנשי קשר
+Backend API for matching guests with contacts
+"""
+
 import logging
 
-# הגדרת logging בתחילת הכל
+# ============================================================
+#                    LOGGING SETUP
+# ============================================================
+# הגדרת מערכת הלוגים - תעד את כל הפעולות של המערכת
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -10,93 +21,211 @@ logger = logging.getLogger(__name__)
 
 logger.info("🚀 Starting application...")
 
+# ============================================================
+#                    IMPORTS SECTION
+# ============================================================
 try:
     logger.info("📦 Importing libraries...")
     
-    # import בסיסי ראשון
-    import os
-    import sys
-    import json
-    import re
+    # ────────────────────────────────────────────────────────
+    # 1️⃣ BASIC PYTHON LIBRARIES (מובנות בפייתון)
+    # ────────────────────────────────────────────────────────
+    import os        # גישה למשתני סביבה ומערכת קבצים
+    import sys       # פונקציות מערכת (כמו יציאה מהתוכנית)
+    import json      # עבודה עם JSON
+    import re        # ביטויים רגולריים (Regular Expressions)
     
-    # בדיקת משתני סביבה קריטיים
+    # ────────────────────────────────────────────────────────
+    # 2️⃣ ENVIRONMENT VARIABLES (משתני סביבה)
+    # ────────────────────────────────────────────────────────
+    # PORT - היציאה שבה השרת ירוץ (ברירת מחדל: 8080)
     PORT = os.environ.get('PORT', '8080')
-    logger.info(f"Port configured: {PORT}")
+    logger.info(f"✅ Port configured: {PORT}")
     
-    # import רגיל
+    # ────────────────────────────────────────────────────────
+    # 3️⃣ FASTAPI & WEB LIBRARIES (ספריות לשרת Web)
+    # ────────────────────────────────────────────────────────
     from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+    # FastAPI - המסגרת לבניית ה-API
+    # UploadFile, File - לטיפול בהעלאת קבצים
+    # HTTPException - לזריקת שגיאות HTTP
+    # Request - לקבלת מידע על הבקשה
+    
     from fastapi.middleware.cors import CORSMiddleware
+    # CORS - מאפשר ל-Frontend (Vercel) לגשת ל-Backend (Cloud Run)
+    
     from fastapi.responses import StreamingResponse
+    # StreamingResponse - להחזרת קבצים (כמו Excel)
+    
     from io import BytesIO
+    # BytesIO - עבודה עם קבצים בזיכרון (ללא שמירה לדיסק)
+    
     import uvicorn
-    import datetime
-    import hashlib
-    import random
-    import time
-    import requests
+    # Uvicorn - השרת שמריץ את FastAPI
     
-    logger.info("✅ Basic libraries imported")
+    # ────────────────────────────────────────────────────────
+    # 4️⃣ UTILITY LIBRARIES (ספריות עזר)
+    # ────────────────────────────────────────────────────────
+    import datetime  # עבודה עם תאריכים ושעות
+    import hashlib   # יצירת Hash (לזיהוי קבצים)
+    import random    # יצירת מספרים אקראיים (לקודי אימות)
+    import time      # עבודה עם זמן
+    import requests  # שליחת בקשות HTTP (לשליחת WhatsApp)
     
-    # import מותנה
+    logger.info("✅ Basic libraries imported successfully")
+    
+    # ────────────────────────────────────────────────────────
+    # 5️⃣ DATA PROCESSING LIBRARIES (ספריות לעיבוד נתונים)
+    # ────────────────────────────────────────────────────────
     try:
         import pandas as pd
+        # Pandas - ספריית העל לעיבוד קבצי Excel/CSV
         logger.info("✅ Pandas imported")
     except ImportError as e:
         logger.error(f"❌ Pandas import failed: {e}")
+        logger.error("💡 Install: pip install pandas")
         sys.exit(1)
     
+    # ────────────────────────────────────────────────────────
+    # 6️⃣ GOOGLE CLOUD LIBRARIES (ספריות Google Cloud)
+    # ────────────────────────────────────────────────────────
     try:
         from google.oauth2 import service_account
+        # Google Auth - אימות ל-Google Sheets
         logger.info("✅ Google auth imported")
     except ImportError as e:
         logger.error(f"❌ Google auth import failed: {e}")
+        logger.error("💡 Install: pip install google-auth")
         sys.exit(1)
     
-    # בדיקת logic module
+    # ────────────────────────────────────────────────────────
+    # 7️⃣ CUSTOM LOGIC MODULE (המודול שלנו - logic.py)
+    # ────────────────────────────────────────────────────────
+    # זה הקובץ שכתבנו עם כל האלגוריתמים של ההתאמות!
     try:
         from logic import (
-            load_excel_flexible, 
-            load_mobile_contacts,
-            process_matching_results,
-            top_matches, 
-            NAME_COL, 
-            PHONE_COL, 
-            create_contacts_template,
-            create_guests_template,
-            to_buf,
-            extract_relevant_guest_details,
-            compute_best_scores
+            # פונקציות טעינת קבצים
+            load_excel_flexible,        # טוען Excel/CSV בצורה גמישה
+            load_mobile_contacts,       # טוען אנשי קשר מהמובייל
+            
+            # פונקציות עיבוד התאמות
+            process_matching_results,   # 🔥 הפונקציה המרכזית - עושה את כל העבודה!
+            validate_dataframes,        # בודק שהקבצים תקינים
+            compute_best_scores,        # מחשב ציונים
+            extract_relevant_guest_details,  # מחלץ פרטים על מוזמן
+            
+            # פונקציות ייצוא
+            to_buf,                     # ממיר DataFrame ל-Excel בזיכרון
+            create_contacts_template,   # יוצר קובץ דוגמה לאנשי קשר
+            create_guests_template,     # יוצר קובץ דוגמה למוזמנים
+            
+            # קבועים (Constants)
+            NAME_COL,                   # "שם מלא"
+            PHONE_COL,                  # "מספר פלאפון"
+            AUTO_SELECT_TH,             # 93 - ציון לבחירה אוטומטית
         )
         LOGIC_AVAILABLE = True
-        logger.info("✅ Logic module available")
+        logger.info("✅ Logic module available - All matching algorithms loaded!")
     except ImportError as e:
         LOGIC_AVAILABLE = False
-        logger.warning(f"⚠️ Logic module not found: {e}")
-        logger.warning("⚠️ App will run in limited mode")
-    
-    # יצירת אפליקציה
-    logger.info("🏗️ Creating FastAPI app...")
-    app = FastAPI(title="Guest Matcher API", version="2.0.0")
-    
-    # CORS
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    logger.info("✅ CORS configured")
-    
-    # קבועים
-    DAILY_LIMIT = 30
-    
-    # משתני סביבה עם בדיקות
-    GREEN_API_ID = os.environ.get('GREEN_API_ID')
-    GREEN_API_TOKEN = os.environ.get('GREEN_API_TOKEN')
-    GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
-    GOOGLE_SHEET_NAME = os.environ.get('GOOGLE_SHEET_NAME', 'users1')
-    GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+        logger.error(f"❌ Logic module not found: {e}")
+        logger.error("💡 Make sure logic.py is in the same directory!")
+        logger.warning("⚠️ App will run in limited mode (without matching functionality)")
+
+except Exception as e:
+    logger.error(f"💥 CRITICAL ERROR during imports: {e}")
+    import traceback
+    logger.error(f"📍 Full traceback: {traceback.format_exc()}")
+    sys.exit(1)
+
+# ============================================================
+#                    FASTAPI APP SETUP
+# ============================================================
+logger.info("🏗️ Creating FastAPI app...")
+app = FastAPI(
+    title="Guest Matcher API",
+    version="2.0.0",
+    description="מערכת חכמה להתאמת מוזמנים לאנשי קשר"
+)
+
+# ────────────────────────────────────────────────────────
+# CORS CONFIGURATION (הגדרות גישה בין דומיינים)
+# ────────────────────────────────────────────────────────
+# מאפשר ל-Frontend (Vercel) לגשת ל-Backend (Cloud Run)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],           # מאפשר גישה מכל דומיין (* = כולם)
+    allow_credentials=True,        # מאפשר שליחת Cookies
+    allow_methods=["*"],           # מאפשר כל סוגי הבקשות (GET, POST, וכו')
+    allow_headers=["*"],           # מאפשר כל Headers
+)
+logger.info("✅ CORS configured - Frontend can now access Backend")
+
+# ============================================================
+#                    CONSTANTS & CONFIG
+# ============================================================
+
+# ────────────────────────────────────────────────────────
+# BUSINESS LOGIC CONSTANTS (קבועים עסקיים)
+# ────────────────────────────────────────────────────────
+DAILY_LIMIT = 30  # מספר התאמות מקסימלי ליום למשתמש חינמי
+
+# ────────────────────────────────────────────────────────
+# ENVIRONMENT VARIABLES (משתני סביבה מ-Cloud Run)
+# ────────────────────────────────────────────────────────
+# אלו נשלפים מההגדרות של Cloud Run / .env
+
+# WhatsApp API (Green API)
+GREEN_API_ID = os.environ.get('GREEN_API_ID')
+GREEN_API_TOKEN = os.environ.get('GREEN_API_TOKEN')
+GREEN_API_URL = None
+if GREEN_API_ID and GREEN_API_TOKEN:
+    GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
+    logger.info("✅ WhatsApp (Green API) configured")
+else:
+    logger.warning("⚠️ WhatsApp API not configured (GREEN_API_ID/TOKEN missing)")
+
+# Google Sheets Database
+GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
+GOOGLE_SHEET_NAME = os.environ.get('GOOGLE_SHEET_NAME', 'users1')  # ברירת מחדל: 'users1'
+GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+
+if GOOGLE_SHEET_ID and GOOGLE_CREDENTIALS_JSON:
+    logger.info("✅ Google Sheets configured")
+else:
+    logger.warning("⚠️ Google Sheets not configured (SHEET_ID/CREDENTIALS missing)")
+
+# ────────────────────────────────────────────────────────
+# VALIDATION CHECK (בדיקת תקינות)
+# ────────────────────────────────────────────────────────
+missing_vars = []
+if not GREEN_API_ID:
+    missing_vars.append('GREEN_API_ID')
+if not GREEN_API_TOKEN:
+    missing_vars.append('GREEN_API_TOKEN')
+if not GOOGLE_SHEET_ID:
+    missing_vars.append('GOOGLE_SHEET_ID')
+if not GOOGLE_CREDENTIALS_JSON:
+    missing_vars.append('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+
+if missing_vars:
+    logger.warning(f"⚠️ Missing environment variables: {', '.join(missing_vars)}")
+    logger.warning("⚠️ Some features may not work properly")
+else:
+    logger.info("✅ All environment variables configured")
+
+# ────────────────────────────────────────────────────────
+# IN-MEMORY STORAGE (אחסון זמני בזיכרון)
+# ────────────────────────────────────────────────────────
+pending_codes = {}  # מילון זמני לשמירת קודי אימות
+# פורמט: {"0501234567": "1234", "0509876543": "5678"}
+
+# ────────────────────────────────────────────────────────
+# GOOGLE SHEETS CLIENT CACHE (מטמון לחיבור Google Sheets)
+# ────────────────────────────────────────────────────────
+_google_client = None  # נשמור כאן את החיבור כדי לא ליצור אותו בכל פעם
+
+logger.info("✅ Configuration complete - Ready to start!")
     
     # בדיקת משתנים
     missing_vars = []
