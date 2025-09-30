@@ -413,6 +413,182 @@ def load_excel(file) -> pd.DataFrame:
     """טוען CSV/XLSX עם זיהוי אוטומטי"""
     return load_excel_flexible(file)
 
+# 🔥 אלגוריתם התאמה משופר (3 רכיבים משוקללים)
+def full_score(g_norm: str, c_norm: str) -> int:
+    """ציון התאמה 0–100 עם אלגוריתם מתקדם"""
+    if not g_norm or not c_norm:
+        return 0
+    if g_norm.strip() == c_norm.strip():
+        return AUTO_SCORE
+        
+    g_t, c_t = _tokens(g_norm), _tokens(c_norm)
+    
+    # התאמה מלאה לאחר ניקוי
+    if g_t == c_t:
+        return AUTO_SCORE
+    
+    if not g_t or not c_t:
+        return fuzz.partial_ratio(g_norm, c_norm)
+    
+    # 🔥 חישוב 3 רכיבים משוקללים
+    tr = fuzz.token_set_ratio(" ".join(g_t), " ".join(c_t)) / 100  # 60%
+    fr = fuzz.ratio(g_t[0], c_t[0]) / 100  # 20% - התאמת טוקן ראשון
+    jr = _fuzzy_jaccard(g_t, c_t)  # 20% - Fuzzy Jaccard
+    
+    # ענישה קלה על פער טוקנים >= 2
+    gap = abs(len(g_t) - len(c_t))
+    penalty = (min(len(g_t), len(c_t)) / max(len(g_t), len(c_t))) if gap >= 2 else 1
+    
+    score = (0.6 * tr + 0.2 * fr + 0.2 * jr) * penalty * 100
+    return int(round(score))
+
+def reason_for(g_norm: str, c_norm: str, score: int) -> str:
+    """מחזיר הסבר קצר למה ניתן הציון"""
+    overlap = [t for t in _tokens(g_norm) if t in set(_tokens(c_norm))]
+    if overlap:
+        return f"חפיפה: {', '.join(overlap[:2])}"
+    if score >= AUTO_SELECT_TH:
+        return "התאמה גבוהה"
+    return ""
+
+# 🔥 ייצוא חכם יותר (מחיקת שם כפול)
+def to_buf(df: pd.DataFrame) -> BytesIO:
+    """ייצוא ל-Excel: מסיר עמודות פנימיות"""
+    # מחק עמודות פנימיות
+    export = df.drop(
+        columns=["norm_name", "score", "best_score"], 
+        errors="ignore"
+    ).copy()
+    
+    # סדר עמודות: כל העמודות המקוריות, טלפון בסוף
+    if PHONE_COL in export.columns:
+        cols = [col for col in export.columns if col != PHONE_COL]
+        cols.append(PHONE_COL)
+        export = export[cols]
+    
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as w:
+        export.to_excel(w, index=False, sheet_name="תוצאות")
+    buf.seek(0)
+    return buf
+
+# ───────── מערכת התאמות מתקדמת ─────────
+def top_matches(guest_norm: str, contacts_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    🔥 בחירת מועמדים הטובים ביותר עם בחירה אוטומטית ב-93%+
+    """
+    if not guest_norm:
+        return pd.DataFrame(columns=list(contacts_df.columns) + ["score", "reason"])
+
+    # חישוב ציונים
+    scores = contacts_df["norm_name"].apply(lambda c: full_score(guest_norm, c))
+    df     = contacts_df.assign(score=scores)
+
+    # בדיקה אם יש Perfect Match (100%)
+    max_score = int(df["score"].max())
+    if max_score == AUTO_SCORE:
+        candidates = (
+            df[df["score"] >= 90]
+            .sort_values(["score", NAME_COL], ascending=[False, True])
+            .head(3)
+            .copy()
+        )
+    else:
+        candidates = (
+            df[df["score"] >= MIN_SCORE_DISPLAY]
+            .sort_values(["score", NAME_COL], ascending=[False, True])
+            .head(MAX_DISPLAYED)
+            .copy()
+        )
+
+    # הוסף reason
+    candidates["reason"] = candidates.apply(
+        lambda row: reason_for(guest_norm, row["norm_name"], row["score"]),
+        axis=1
+    )
+
+    return candidates
+
+# 🔥 חילוץ פרטי מוזמן רלוונטיים
+def extract_relevant_guest_details(row: pd.Series) -> Dict:
+    """חילוץ רק הפרטים הרלוונטיים של מוזמן"""
+    details = {}
+    
+    # כל העמודות מלבד פנימיות
+    exclude_cols = {NAME_COL, PHONE_COL, "norm_name", "score", "best_score"}
+    
+    for col in row.index:
+        if col not in exclude_cols and pd.notna(row[col]) and str(row[col]).strip():
+            details[col] = str(row[col])
+    
+    return details
+
+# 🔥 חישוב ציון מקסימלי לכל מוזמן
+def compute_best_scores(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> pd.DataFrame:
+    """מחשב את הציון הגבוה ביותר לכל מוזמן"""
+    best_scores = []
+    
+    for _, guest_row in guests_df.iterrows():
+        matches = top_matches(guest_row["norm_name"], contacts_df)
+        best_score = int(matches["score"].max()) if len(matches) > 0 else 0
+        best_scores.append(best_score)
+    
+    guests_df = guests_df.copy()
+    guests_df["best_score"] = best_scores
+    return guests_df
+
+# 🔥 פונקציה מרכזית לעיבוד התאמות
+def process_matching_results(guests_df: pd.DataFrame, contacts_df: pd.DataFrame, contacts_source: str = "file") -> List[Dict]:
+    """
+    עיבוד מלא של כל המוזמנים מול אנשי הקשר
+    מחזיר רשימה של דיקטים עם כל המידע הדרוש ל-frontend
+    """
+    results = []
+    
+    # חשב ציונים מקסימליים
+    guests_with_scores = compute_best_scores(guests_df, contacts_df)
+    
+    for _, guest_row in guests_with_scores.iterrows():
+        guest_name = guest_row[NAME_COL]
+        guest_norm = guest_row["norm_name"]
+        best_score = guest_row["best_score"]
+        
+        # מצא מועמדים
+        matches = top_matches(guest_norm, contacts_df)
+        
+        # המר מועמדים לפורמט frontend
+        candidates = []
+        auto_selected = None
+        
+        for _, match_row in matches.iterrows():
+            candidate = {
+                "name": match_row[NAME_COL],
+                "phone": format_phone(match_row[PHONE_COL]),
+                "score": int(match_row["score"]),
+                "reason": match_row.get("reason", "")
+            }
+            candidates.append(candidate)
+            
+            # 🔥 בחירה אוטומטית אם הציון >= 93%
+            if match_row["score"] >= AUTO_SELECT_TH and auto_selected is None:
+                auto_selected = candidate
+        
+        # חלץ פרטים רלוונטיים של המוזמן
+        guest_details = extract_relevant_guest_details(guest_row)
+        
+        result = {
+            "guest": guest_name,
+            "guest_details": guest_details,
+            "candidates": candidates,
+            "best_score": best_score,
+            "auto_selected": auto_selected  # 🔥 מוסיף בחירה אוטומטית
+        }
+        
+        results.append(result)
+    
+    return results
+
+
 # ───────── מערכת הרשאות: Google Sheets + קובץ גיבוי ─────────
 def _pick_worksheet(sh):
     """מאתר לשונית לפי שם"""
@@ -497,88 +673,3 @@ def is_user_authorized(phone: str) -> bool:
     if allowed is None:
         allowed = _load_allowed_from_excel()
     return clean in allowed
-
-# 🔥 אלגוריתם התאמה משופר (3 רכיבים משוקללים)
-def full_score(g_norm: str, c_norm: str) -> int:
-    """ציון התאמה 0–100 עם אלגוריתם מתקדם"""
-    if not g_norm or not c_norm:
-        return 0
-    if g_norm.strip() == c_norm.strip():
-        return AUTO_SCORE
-        
-    g_t, c_t = _tokens(g_norm), _tokens(c_norm)
-    
-    # התאמה מלאה לאחר ניקוי
-    if g_t == c_t:
-        return AUTO_SCORE
-    
-    if not g_t or not c_t:
-        return fuzz.partial_ratio(g_norm, c_norm)
-    
-    # 🔥 חישוב 3 רכיבים משוקללים
-    tr = fuzz.token_set_ratio(" ".join(g_t), " ".join(c_t)) / 100  # 60%
-    fr = fuzz.ratio(g_t[0], c_t[0]) / 100  # 20% - התאמת טוקן ראשון
-    jr = _fuzzy_jaccard(g_t, c_t)  # 20% - Fuzzy Jaccard
-    
-    # ענישה קלה על פער טוקנים >= 2
-    gap = abs(len(g_t) - len(c_t))
-    penalty = (min(len(g_t), len(c_t)) / max(len(g_t), len(c_t))) if gap >= 2 else 1
-    
-    score = (0.6 * tr + 0.2 * fr + 0.2 * jr) * penalty * 100
-    return int(round(score))
-
-def reason_for(g_norm: str, c_norm: str, score: int) -> str:
-    """מחזיר הסבר קצר למה ניתן הציון"""
-    overlap = [t for t in _tokens(g_norm) if t in set(_tokens(c_norm))]
-    if overlap:
-        return f"חפיפה: {', '.join(overlap[:2])}"
-    if score >= AUTO_SELECT_TH:
-        return "התאמה גבוהה"
-    return ""
-
-# 🔥 ייצוא חכם יותר (מחיקת שם כפול)
-def to_buf(df: pd.DataFrame) -> BytesIO:
-    """ייצוא ל-Excel: מסיר עמודות פנימיות"""
-    # מחק עמודות פנימיות וגם NAME_COL (כי הוא בקובץ המקורי)
-    export = df.drop(
-        columns=["norm_name", "score", "best_score"], 
-        errors="ignore"
-    ).copy()
-    
-    # סדר עמודות: כל העמודות המקוריות, טלפון בסוף
-    if PHONE_COL in export.columns:
-        cols = [col for col in export.columns if col != PHONE_COL]
-        cols.append(PHONE_COL)
-        export = export[cols]
-    
-    buf = BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as w:
-        export.to_excel(w, index=False, sheet_name="תוצאות")
-    buf.seek(0)
-    return buf
-
-# ───────── מערכת התאמות מתקדמת ─────────
-def top_matches(guest_norm: str, contacts_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    🔥 בחירת מועמדים הטובים ביותר עם בחירה אוטומטית ב-93%+
-    """
-    if not guest_norm:
-        return pd.DataFrame(columns=list(contacts_df.columns) + ["score", "reason"])
-
-    # חישוב ציונים
-    scores = contacts_df["norm_name"].apply(lambda c: full_score(guest_norm, c))
-    df     = contacts_df.assign(score=scores)
-
-    # בדיקה אם יש Perfect Match (100%)
-    max_score = int(df["score"].max())
-    if max_score == AUTO_SCORE:
-        candidates = (
-            df[df["score"] >= 90]
-            .sort_values(["score", NAME_COL], ascending=[False, True])
-            .head(3)
-            .copy()
-        )
-    else:
-        candidates = (
-            df[df["score"] >= MIN_SCORE_DISPLAY]
-            .sort_values(["score
