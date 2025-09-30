@@ -29,6 +29,7 @@ const ChatunoTech = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [fileHash, setFileHash] = useState('');
   const [filters, setFilters] = useState({
+    
     side: '',
     group: '',
     searchTerm: ''
@@ -45,6 +46,7 @@ const ChatunoTech = () => {
   const [fullNameValue, setFullNameValue] = useState('');
   const [codeValue, setCodeValue] = useState('');
   const [showCodeInput, setShowCodeInput] = useState(false);
+  const [autoSelectedCount, setAutoSelectedCount] = useState(0);
 
   // Check mobile contacts support
   useEffect(() => {
@@ -291,9 +293,19 @@ const ChatunoTech = () => {
       const data = await response.json();
       setMatchingResults(data.results);
       setFileHash(data.file_hash);
+      setAutoSelectedCount(data.auto_selected_count || 0);  // 🔥 שמור מספר בחירות אוטומטיות
       
       const startIndex = data.start_index || 0;
       setCurrentGuestIndex(startIndex);
+
+      // 🔥 בחירה אוטומטית למוזמנים עם ציון >= 93%
+      const autoSelections = {};
+      data.results.forEach(result => {
+        if (result.auto_selected) {
+          autoSelections[result.guest] = result.auto_selected;
+        }
+      });
+      setSelectedContacts(prev => ({ ...prev, ...autoSelections }));
 
       const totalGuests = data.results.length;
       const remainingLimit = getRemainingDailyLimit();
@@ -310,6 +322,14 @@ const ChatunoTech = () => {
           setTimeout(() => showScreen('paymentScreen'), 3000);
           return;
         }
+      }
+
+      // 🔥 הצג הודעה על בחירות אוטומטיות
+      if (data.auto_selected_count > 0) {
+        showMessage(
+          `✅ ${data.auto_selected_count} מוזמנים נבחרו אוטומטית (התאמה של 93%+)!`,
+          'success'
+        );
       }
 
       showScreen('matchingScreen');
@@ -1025,6 +1045,17 @@ const ChatunoTech = () => {
           direction: ltr;
           text-align: right;
         }
+          
+        @keyframes slideDown {
+          from {
+            opacity: 0;
+            transform: translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
 
         .candidate-score {
           color: var(--teal-green);
@@ -1596,7 +1627,22 @@ const ChatunoTech = () => {
                           )}
                         </div>
                       </div>
-                      
+                      {/* אינדיקטור בחירה אוטומטית */}
+                      {matchingResults[currentGuestIndex].auto_selected && (
+                        <div style={{
+                          background: 'linear-gradient(135deg, #4ade80, #22c55e)',
+                          color: 'white',
+                          padding: '12px 20px',
+                          borderRadius: '10px',
+                          marginBottom: '15px',
+                          textAlign: 'center',
+                          fontWeight: 'bold',
+                          boxShadow: '0 4px 15px rgba(74, 222, 128, 0.3)',
+                          animation: 'slideDown 0.5s ease'
+                        }}>
+                          ✨ נבחר אוטומטית - התאמה מושלמת של {matchingResults[currentGuestIndex].best_score}%!
+                        </div>
+                      )}
                       {/* פרטים רלוונטיים על המוזמן */}
                       <div className="guest-details">
                         {(() => {
@@ -1967,6 +2013,7 @@ const ChatunoTech = () => {
                 <p><strong>📊 סיכום:</strong></p>
                 <p>• {matchingResults.length} מוזמנים עובדו</p>
                 <p>• {Object.keys(selectedContacts).length} התאמות נבחרו</p>
+                <p>• ✨ {autoSelectedCount} נבחרו אוטומטית (93%+)</p>
                 <p>• {matchingResults.length - Object.keys(selectedContacts).length} מוזמנים ללא מספר</p>
               </div>
               

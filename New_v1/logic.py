@@ -1,15 +1,12 @@
 # logic.py – מערכת התאמת מוזמנים מתקדמת (מעודכן)
-"""שדרוג אלגוריתם התאמת השמות עם תמיכה במובייל ופיצ'רים חדשים
+"""שדרוג אלגוריתם התאמת השמות עם פיצ'רים מתקדמים
 ----------------------------------------------------------------
-* זיהוי אוטומטי וגמיש של עמודות
-* תמיכה בפורמטים שונים של קבצי Excel/CSV
-* תמיכה באנשי קשר ממובייל
-* אלגוריתם התאמה מתקדם עם fuzzy matching
-* נורמליזציה משופרת של שמות
-* מערכת הרשאות עם Google Sheets וגיבוי מקומי
-* טיפול בשגיאות encoding ופורמטים שונים
-* תמיכה בשדות דינמיים במוזמנים
-* זיהוי חכם של שדות רלוונטיים
+* אלגוריתם התאמה משופר (3 רכיבים משוקללים)
+* ניקוי טוקנים מתקדם (סיומות, ו' חיבור)
+* זיהוי שם מלא חכם (שם פרטי + משפחה)
+* חילוץ כמות מטקסט
+* Fuzzy Jaccard
+* בחירה אוטומטית מעל 93%
 """
 
 from __future__ import annotations
@@ -51,16 +48,16 @@ SCOPES = [
 
 # ENV לגיליון המורשים
 SPREADSHEET_ID_ENV  = "SPREADSHEET_ID"
-WORKSHEET_TITLE_ENV = "WORKSHEET_TITLE"   # אופציונלי
+WORKSHEET_TITLE_ENV = "WORKSHEET_TITLE"
 
 # גיבוי מקומי
 LOCAL_ALLOWED_FILE  = "allowed_users.xlsx"
 LOCAL_PHONE_COLS    = ("טלפון", "phone", "מספר", "מספר פלאפון", "פלאפון")
 
-# מילות יחס/קשר (ignored לגמרי)
+# 🔥 מילות יחס/קשר (ignored לגמרי)
 GENERIC_TOKENS: Set[str] = {"של", "ה", "בן", "בת", "משפחת", "אחי", "אחות", "דוד", "דודה"}
 
-# סיומות/כינויים שאינם חלק מהשם (נמחקות מהקצה)
+# 🔥 סיומות/כינויים שאינם חלק מהשם (נמחקות מהקצה)
 SUFFIX_TOKENS: Set[str] = {
     "מילואים", "miluyim", "miloyim", "mil", "נייד", "סלולר", "סלולרי",
     "בית", "עבודה", "עסקי", "אישי", "משרד"
@@ -85,12 +82,15 @@ def normalize(txt: str | None) -> str:
     t = _space_re.sub(" ", t).strip()
     return unidecode.unidecode(t)
 
+# 🔥 ניקוי טוקנים מתקדם
 def _clean_token(tok: str) -> str:
-    """מסיר ו' חיבור וסיומת i, ומתעלם מ־SUFFIX_TOKENS"""
+    """מסיר ו' חיבור, סיומת i, ומתעלם מ־SUFFIX_TOKENS"""
     if tok in SUFFIX_TOKENS:
         return ""
+    # הסרת ו' חיבור: "ודוד" → "דוד"
     if tok.startswith("v") and len(tok) > 2:
         tok = tok[1:]
+    # הסרת סיומת i: "davidi" → "david"
     if len(tok) >= 4 and tok.endswith("i"):
         tok = tok[:-1]
     return tok
@@ -100,10 +100,12 @@ def _tokens(name: str) -> List[str]:
     tks = [_clean_token(t) for t in _token_re.split(name)]
     return [t for t in tks if t and t not in GENERIC_TOKENS]
 
+# 🔥 Fuzzy Equality (Levenshtein ≥ 90%)
 def _fuzzy_eq(a: str, b: str) -> bool:
     """טוקנים זהים או דומים ≥ 90 % ב‑Levenshtein"""
     return a == b or distance.Levenshtein.normalized_similarity(a, b) >= 0.9
 
+# 🔥 Fuzzy Jaccard
 def _fuzzy_jaccard(gs: List[str], cs: List[str]) -> float:
     """חישוב Jaccard עם התחשבות ב-fuzzy equality"""
     matched, used = 0, set()
@@ -202,6 +204,45 @@ def identify_relevant_fields(df: pd.DataFrame) -> Dict[str, str]:
     
     return relevant_fields
 
+# 🔥 זיהוי שם מלא חכם (שם פרטי + משפחה)
+def _resolve_full_name_series(df: pd.DataFrame) -> pd.Series:
+    """
+    מאחד שם פרטי+משפחה / מזהה 'שם מלא' / דמויות שם – ומחזיר Series.
+    אלגוריתם מתקדם לזיהוי וחיבור עמודות שם.
+    """
+    cols = list(df.columns)
+    low = {c: str(c).strip().lower() for c in cols}
+    
+    # זיהוי ישיר של עמודת שם מלא
+    direct = {"שם מלא", "full name", "fullname", "guest name", "שם המוזמן", "name"}
+    for c in cols:
+        if low[c] in direct:
+            return df[c].fillna("").astype(str).str.strip()
+    
+    # חיבור שם פרטי + משפחה
+    first = [c for c in cols if "פרטי" in low[c] or low[c] in {"שם", "first", "firstname", "given"}]
+    last  = [c for c in cols if "משפחה" in low[c] or low[c] in {"last", "lastname", "surname", "family"}]
+    
+    if first and last:
+        # בחר את העמודות הטובות ביותר
+        f = first[0]
+        l = last[0]
+        return (df[f].fillna("").astype(str).str.strip() + " " +
+                df[l].fillna("").astype(str).str.strip()).str.replace(r"\s+", " ", regex=True).str.strip()
+    
+    # חיפוש עמודות דמויות שם
+    name_like = [c for c in cols if any(k in low[c] for k in ["שם", "name", "guest", "מוזמן"])]
+    if name_like:
+        # בחר עמודה עם הכי הרבה תוכן
+        best_col = max(name_like, key=lambda col: df[col].astype(str).str.len().mean())
+        return df[best_col].fillna("").astype(str).str.strip()
+    
+    # אם לא מצאנו כלום - השתמש בעמודה הראשונה
+    if len(df.columns) > 0:
+        return df.iloc[:, 0].fillna("").astype(str).str.strip()
+    
+    return pd.Series([""] * len(df))
+
 # ───────── טעינת קבצים גמישה עם שיפורים ─────────
 def load_excel_flexible(file) -> pd.DataFrame:
     """טעינת קובץ עם זיהוי אוטומטי של עמודות וטיפול בפורמטים שונים"""
@@ -224,10 +265,10 @@ def load_excel_flexible(file) -> pd.DataFrame:
         if len(df) == 0:
             raise Exception("הקובץ ריק או לא מכיל נתונים")
         
-        # זיהוי אם זה קובץ אנשי קשר עם הפורמט הקבוע שלך
+        # זיהוי אם זה קובץ אנשי קשר עם הפורמט הקבוע
         is_contacts_file = (
             len(df.columns) >= 3 and 
-            df.iloc[:, 0].astype(str).str.contains(r'972\d{9}').any()  # עמודה A מכילה מספרי טלפון
+            df.iloc[:, 0].astype(str).str.contains(r'972\d{9}').any()
         )
         
         # יצירת עמודות סטנדרטיות
@@ -235,22 +276,17 @@ def load_excel_flexible(file) -> pd.DataFrame:
         
         if is_contacts_file:
             print("📞 Detected contacts file with fixed format")
-            # פורמט קבוע: A=טלפון, B=שם קצר, C=שם מלא
-            standard_df[PHONE_COL] = df.iloc[:, 0].astype(str).str.strip()  # עמודה A
-            standard_df[NAME_COL] = df.iloc[:, 2].astype(str).str.strip()   # עמודה C
+            # פורמט קבוע: A=טלפון, C=שם מלא
+            standard_df[PHONE_COL] = df.iloc[:, 0].astype(str).str.strip()
+            standard_df[NAME_COL] = df.iloc[:, 2].astype(str).str.strip()
         else:
             print("👰 Detected guests file - using flexible detection")
             # זיהוי אוטומטי לקובץ מוזמנים
             column_mapping = smart_column_mapping(df)
             relevant_fields = identify_relevant_fields(df)
             
-            # מציאת עמודת שם
-            name_cols = [col for col, type_val in column_mapping.items() if type_val == 'name']
-            if name_cols:
-                best_name_col = max(name_cols, key=lambda col: df[col].astype(str).str.len().mean())
-                standard_df[NAME_COL] = df[best_name_col].astype(str).str.strip()
-            else:
-                standard_df[NAME_COL] = df.iloc[:, 0].astype(str).str.strip()
+            # 🔥 שימוש באלגוריתם החכם לזיהוי שם
+            standard_df[NAME_COL] = _resolve_full_name_series(df)
             
             # עמודת טלפון (אופציונלית למוזמנים)
             phone_cols = [col for col, type_val in column_mapping.items() if type_val == 'phone']
@@ -259,12 +295,24 @@ def load_excel_flexible(file) -> pd.DataFrame:
             else:
                 standard_df[PHONE_COL] = ""
             
-            # שמירה של שדות רלוונטיים
+            # 🔥 חילוץ כמות מטקסט
+            count_cols = [col for col, type_val in column_mapping.items() if type_val == 'count']
+            if count_cols:
+                counts_raw = df[count_cols[0]].astype(str)
+                counts_num = pd.to_numeric(
+                    counts_raw.str.extract(r"(\d+)")[0], 
+                    errors="coerce"
+                )
+                standard_df[COUNT_COL] = counts_num.fillna(1).astype(int)
+            else:
+                standard_df[COUNT_COL] = 1
+            
+            # שדות נוספים
             for display_name, col_name in relevant_fields.items():
                 if col_name in df.columns:
                     standard_df[display_name] = df[col_name].astype(str).fillna("")
         
-        # שדות נוספים
+        # שדות חובה
         if COUNT_COL not in standard_df.columns:
             standard_df[COUNT_COL] = 1
         if SIDE_COL not in standard_df.columns:
@@ -293,27 +341,19 @@ def load_mobile_contacts(contacts_data: List[Dict]) -> pd.DataFrame:
     try:
         print(f"📱 Loading mobile contacts: {len(contacts_data)} contacts")
         
-        # יצירת DataFrame מאנשי הקשר
         df = pd.DataFrame(contacts_data)
         
-        # וידוא שיש עמודות name ו-phone
         if 'name' not in df.columns or 'phone' not in df.columns:
-            raise Exception("פורמט אנשי קשר לא תקין - חסרות עמודות name או phone")
+            raise Exception("פורמט אנשי קשר לא תקין")
         
-        # יצירת עמודות סטנדרטיות
         standard_df = pd.DataFrame()
         standard_df[NAME_COL] = df['name'].astype(str).str.strip()
         standard_df[PHONE_COL] = df['phone'].astype(str).str.strip()
-        
-        # שדות נוספים
         standard_df[COUNT_COL] = 1
         standard_df[SIDE_COL] = ""
         standard_df[GROUP_COL] = ""
-        
-        # נירמול שמות
         standard_df["norm_name"] = standard_df[NAME_COL].map(normalize)
         
-        # סינון רשומות ריקות
         standard_df = standard_df[
             (standard_df["norm_name"].str.strip() != "") & 
             (standard_df[PHONE_COL].str.strip() != "")
@@ -330,7 +370,7 @@ def load_mobile_contacts(contacts_data: List[Dict]) -> pd.DataFrame:
         raise Exception(f"לא ניתן לעבד את אנשי הקשר: {str(e)}")
 
 def create_contacts_template() -> pd.DataFrame:
-    """יוצר קובץ דוגמה לאנשי קשר - פורמט חדש"""
+    """יוצר קובץ דוגמה לאנשי קשר"""
     template = pd.DataFrame({
         'מספר נייד': [
             '972507676706',
@@ -370,12 +410,12 @@ def create_guests_template() -> pd.DataFrame:
 
 # הפונקציה הישנה נשארת לתאימות לאחור
 def load_excel(file) -> pd.DataFrame:
-    """טוען CSV/XLSX עם זיהוי אוטומטי, מנרמל ומוודא עמודות חובה."""
+    """טוען CSV/XLSX עם זיהוי אוטומטי"""
     return load_excel_flexible(file)
 
 # ───────── מערכת הרשאות: Google Sheets + קובץ גיבוי ─────────
 def _pick_worksheet(sh):
-    """מאתר לשונית לפי שם (לא רגיש לרישיות/רווחים). אם אין/לא נמצא – הראשונה."""
+    """מאתר לשונית לפי שם"""
     wanted = os.getenv(WORKSHEET_TITLE_ENV)
     if wanted:
         w = wanted.strip().lower()
@@ -385,7 +425,7 @@ def _pick_worksheet(sh):
     return sh.get_worksheet(0)
 
 def _find_phone_col(header: list[str]) -> int:
-    """אינדקס עמודת הטלפון לפי כותרת (case-insensitive). אם לא נמצא – B (1)."""
+    """אינדקס עמודת הטלפון לפי כותרת"""
     header_lower = [str(h).strip().lower() for h in header]
     lookup = tuple(x.lower() for x in ("טלפון", "מספר פלאפון", "פלאפון", "phone", "מספר"))
     for i, h in enumerate(header_lower):
@@ -394,7 +434,7 @@ def _find_phone_col(header: list[str]) -> int:
     return 1
 
 def _load_allowed_from_sheets() -> set[str] | None:
-    """טוען סט טלפונים מורשים מ-Sheets דרך ADC. מחזיר None אם אין/שגיאה (כדי לאפשר גיבוי)."""
+    """טוען סט טלפונים מורשים מ-Sheets"""
     if not GOOGLE_AVAILABLE:
         logging.info("Google Sheets not available - skipping")
         return None
@@ -432,7 +472,7 @@ def _load_allowed_from_sheets() -> set[str] | None:
         return None
 
 def _load_allowed_from_excel() -> set[str]:
-    """גיבוי: טוען טלפונים מורשים מ-allowed_users.xlsx (אם קיים)."""
+    """גיבוי: טוען טלפונים מורשים מ-allowed_users.xlsx"""
     if not os.path.exists(LOCAL_ALLOWED_FILE):
         return set()
     try:
@@ -451,16 +491,16 @@ def _load_allowed_from_excel() -> set[str]:
     return allowed
 
 def is_user_authorized(phone: str) -> bool:
-    """True אם המספר (אחרי נורמליזציה) מופיע ברשימת המורשים (Sheets או Excel מקומי)."""
+    """True אם המספר מופיע ברשימת המורשים"""
     clean = only_digits(phone)
     allowed = _load_allowed_from_sheets()
     if allowed is None:
         allowed = _load_allowed_from_excel()
     return clean in allowed
 
-# ───────── אלגוריתם התאמה מתקדם ─────────
+# 🔥 אלגוריתם התאמה משופר (3 רכיבים משוקללים)
 def full_score(g_norm: str, c_norm: str) -> int:
-    """ציון התאמה 0–100 בין שני שמות מנורמלים עם אלגוריתם משופר."""
+    """ציון התאמה 0–100 עם אלגוריתם מתקדם"""
     if not g_norm or not c_norm:
         return 0
     if g_norm.strip() == c_norm.strip():
@@ -468,17 +508,17 @@ def full_score(g_norm: str, c_norm: str) -> int:
         
     g_t, c_t = _tokens(g_norm), _tokens(c_norm)
     
-    # התאמה מלאה לאחר ניקוי (core‑tokens זהים)
+    # התאמה מלאה לאחר ניקוי
     if g_t == c_t:
         return AUTO_SCORE
     
     if not g_t or not c_t:
         return fuzz.partial_ratio(g_norm, c_norm)
     
-    # חישוב רכיבי הציון
-    tr = fuzz.token_set_ratio(" ".join(g_t), " ".join(c_t)) / 100
-    fr = fuzz.ratio(g_t[0], c_t[0]) / 100
-    jr = _fuzzy_jaccard(g_t, c_t)
+    # 🔥 חישוב 3 רכיבים משוקללים
+    tr = fuzz.token_set_ratio(" ".join(g_t), " ".join(c_t)) / 100  # 60%
+    fr = fuzz.ratio(g_t[0], c_t[0]) / 100  # 20% - התאמת טוקן ראשון
+    jr = _fuzzy_jaccard(g_t, c_t)  # 20% - Fuzzy Jaccard
     
     # ענישה קלה על פער טוקנים >= 2
     gap = abs(len(g_t) - len(c_t))
@@ -488,7 +528,7 @@ def full_score(g_norm: str, c_norm: str) -> int:
     return int(round(score))
 
 def reason_for(g_norm: str, c_norm: str, score: int) -> str:
-    """מחזיר הסבר קצר למה ניתן הציון הזה"""
+    """מחזיר הסבר קצר למה ניתן הציון"""
     overlap = [t for t in _tokens(g_norm) if t in set(_tokens(c_norm))]
     if overlap:
         return f"חפיפה: {', '.join(overlap[:2])}"
@@ -496,28 +536,20 @@ def reason_for(g_norm: str, c_norm: str, score: int) -> str:
         return "התאמה גבוהה"
     return ""
 
+# 🔥 ייצוא חכם יותר (מחיקת שם כפול)
 def to_buf(df: pd.DataFrame) -> BytesIO:
-    """ייצוא ל-Excel: מסיר עמודות פנימיות ומשאיר טלפון בסוף."""
-    export = df.drop(columns=["norm_name", "score", "best_score"], errors="ignore").copy()
+    """ייצוא ל-Excel: מסיר עמודות פנימיות"""
+    # מחק עמודות פנימיות וגם NAME_COL (כי הוא בקובץ המקורי)
+    export = df.drop(
+        columns=["norm_name", "score", "best_score"], 
+        errors="ignore"
+    ).copy()
     
-    # סדר עמודות: שם מלא ראשון, טלפון אחרון, השאר באמצע
-    columns_order = []
-    
-    # שם מלא ראשון
-    if NAME_COL in export.columns:
-        columns_order.append(NAME_COL)
-    
-    # כל השאר חוץ מטלפון
-    for col in export.columns:
-        if col not in [NAME_COL, PHONE_COL]:
-            columns_order.append(col)
-    
-    # טלפון אחרון
+    # סדר עמודות: כל העמודות המקוריות, טלפון בסוף
     if PHONE_COL in export.columns:
-        columns_order.append(PHONE_COL)
-    
-    # סדר מחדש
-    export = export.reindex(columns=columns_order, fill_value="")
+        cols = [col for col in export.columns if col != PHONE_COL]
+        cols.append(PHONE_COL)
+        export = export[cols]
     
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
@@ -528,21 +560,16 @@ def to_buf(df: pd.DataFrame) -> BytesIO:
 # ───────── מערכת התאמות מתקדמת ─────────
 def top_matches(guest_norm: str, contacts_df: pd.DataFrame) -> pd.DataFrame:
     """
-    בוחר למוזמן עם השם המנורמל guest_norm את המועמדים הטובים ביותר מה־contacts_df לפי:
-    1. אם יש התאמה מושלמת (100%) – עד 3 תוצאות עם score >= 90.
-    2. אחרת – עד 3 תוצאות עם score >= MIN_SCORE_DISPLAY (70).
-    3. אם אין כאלה – עד 3 תוצאות עם score >= 55 (threshold fallback).
-    
-    לוגיקה מתקדמת המבטיחה תוצאות איכותיות.
+    🔥 בחירת מועמדים הטובים ביותר עם בחירה אוטומטית ב-93%+
     """
     if not guest_norm:
         return pd.DataFrame(columns=list(contacts_df.columns) + ["score", "reason"])
 
-    # 1) מחשיבים את כל הציונים
+    # חישוב ציונים
     scores = contacts_df["norm_name"].apply(lambda c: full_score(guest_norm, c))
     df     = contacts_df.assign(score=scores)
 
-    # 2) בודקים האם יש Perfect Match (100%)
+    # בדיקה אם יש Perfect Match (100%)
     max_score = int(df["score"].max())
     if max_score == AUTO_SCORE:
         candidates = (
@@ -552,94 +579,6 @@ def top_matches(guest_norm: str, contacts_df: pd.DataFrame) -> pd.DataFrame:
             .copy()
         )
     else:
-        # 3) מציגים לפחות MIN_SCORE_DISPLAY
         candidates = (
             df[df["score"] >= MIN_SCORE_DISPLAY]
-            .sort_values(["score", NAME_COL], ascending=[False, True])
-            .head(3)
-            .copy()
-        )
-        # 4) fallback – אם אין כלל מועמדים ≥MIN_SCORE_DISPLAY, נציג לפחות מעל 50
-        if candidates.empty:
-            candidates = (
-                df[df["score"] >= 50]
-                .sort_values(["score", NAME_COL], ascending=[False, True])
-                .head(3)
-                .copy()
-            )
-
-    # 5) מוסיפים עמודת 'reason' להסבר התאמה
-    candidates["reason"] = [
-        reason_for(guest_norm, row["norm_name"], int(row["score"]))
-        for _, row in candidates.iterrows()
-    ]
-    return candidates
-
-def compute_best_scores(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> pd.Series:
-    """מחשב את הציון הטוב ביותר לכל מוזמן מול כל אנשי הקשר"""
-    return guests_df["norm_name"].apply(
-        lambda n: int(contacts_df["norm_name"].apply(lambda c: full_score(n, c)).max()) if n else 0
-    )
-
-def extract_relevant_guest_details(guest_row: pd.Series) -> Dict[str, str]:
-    """מחלץ רק הפרטים הרלוונטיים של המוזמן לתצוגה"""
-    relevant_details = {}
-    
-    # רשימת שדות פוטנציאליים לצד
-    side_fields = ['צד', 'side', 'חתן', 'כלה', 'groom', 'bride']
-    for field in side_fields:
-        if field in guest_row.index and pd.notna(guest_row[field]) and str(guest_row[field]).strip():
-            relevant_details['צד'] = str(guest_row[field]).strip()
-            break
-    
-    # רשימת שדות פוטנציאליים לקבוצה
-    group_fields = ['קבוצה', 'group', 'קטגוריה', 'category', 'סוג', 'type', 'יחס', 'relation']
-    for field in group_fields:
-        if field in guest_row.index and pd.notna(guest_row[field]) and str(guest_row[field]).strip():
-            relevant_details['קבוצה'] = str(guest_row[field]).strip()
-            break
-    
-    # רשימת שדות פוטנציאליים לכמות
-    count_fields = ['כמות', 'quantity', 'מספר מוזמנים', 'אורחים', 'כמות מוזמנים']
-    for field in count_fields:
-        if field in guest_row.index and pd.notna(guest_row[field]) and str(guest_row[field]).strip():
-            relevant_details['כמות'] = str(guest_row[field]).strip()
-            break
-    
-    return relevant_details
-
-def process_matching_results(guests_df: pd.DataFrame, contacts_df: pd.DataFrame, contacts_source: str = 'file') -> List[Dict]:
-    """עיבוד מלא של תוצאות ההתאמה עם שיפורים"""
-    results = []
-    
-    for idx, (_, guest) in enumerate(guests_df.iterrows()):
-        guest_name = guest[NAME_COL]
-        guest_norm = guest["norm_name"]
-        
-        # חילוץ פרטים רלוונטיים בלבד
-        guest_details = extract_relevant_guest_details(guest)
-        guest_details[NAME_COL] = guest_name  # הוסף את השם
-        
-        # מציאת מועמדים
-        candidates = top_matches(guest_norm, contacts_df)
-        best_score = candidates["score"].max() if len(candidates) > 0 else 0
-        
-        # הכנת רשימת מועמדים
-        candidates_list = []
-        for _, candidate in candidates.iterrows():
-            candidates_list.append({
-                "name": candidate[NAME_COL],
-                "phone": format_phone(candidate[PHONE_COL]),
-                "score": int(candidate["score"]),
-                "reason": candidate.get("reason", "")
-            })
-        
-        results.append({
-            "index": idx,
-            "guest": guest_name,
-            "guest_details": guest_details,
-            "best_score": int(best_score),
-            "candidates": candidates_list
-        })
-    
-    return results
+            .sort_values(["score

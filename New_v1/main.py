@@ -553,8 +553,8 @@ try:
                 start_index = user_data["current_progress"]
                 logger.info(f"Resuming from index {start_index} for existing file")
 
-            # עיבוד התאמות מלא
-            logger.info("Processing matching results...")
+            # 🔥 עיבוד התאמות מלא עם בחירה אוטומטית
+            logger.info("Processing matching results with auto-selection...")
             results = process_matching_results(guests_df, contacts_df, contacts_source)
 
             # עדכן hash אם קובץ חדש
@@ -564,13 +564,19 @@ try:
                 logger.info("New file detected, starting from beginning")
             
             logger.info(f"Successfully processed {len(results)} guests")
+            
+            # 🔥 ספור כמה נבחרו אוטומטית
+            auto_selected_count = sum(1 for r in results if r.get("auto_selected"))
+            logger.info(f"Auto-selected {auto_selected_count} guests with score >= {AUTO_SELECT_TH}%")
+            
             return {
                 "results": results,
                 "start_index": start_index,
                 "file_hash": file_hash,
                 "contacts_source": contacts_source,
                 "total_guests": len(results),
-                "contacts_count": len(contacts_df)
+                "contacts_count": len(contacts_df),
+                "auto_selected_count": auto_selected_count  # 🔥 מספר בחירות אוטומטיות
             }
         
         except Exception as e:
