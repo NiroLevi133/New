@@ -13,6 +13,7 @@ __all__ = [
     'process_matching_results',
     'compute_best_scores',
     'extract_relevant_guest_details',
+    'extract_smart_fields',  # 🔥 חדש
     
     # פונקציות בדיקה
     'validate_dataframes',
@@ -35,12 +36,11 @@ __all__ = [
     'SIDE_COL',
     'GROUP_COL',
     'AUTO_SCORE',
-    'AUTO_SELECT_TH',  # 🔥 חשוב!
+    'AUTO_SELECT_TH',
     'MIN_SCORE_DISPLAY',
     'MAX_DISPLAYED',
+    'FIELD_PRIORITY',  # 🔥 חדש
 ]
-
-
 
 import os, re, logging, json
 from io import BytesIO
@@ -67,9 +67,19 @@ SIDE_COL          = "צד"
 GROUP_COL         = "קבוצה"
 
 AUTO_SCORE        = 100
-AUTO_SELECT_TH    = 93
+AUTO_SELECT_TH    = 93  # 93%+ = בחירה אוטומטית
 MIN_SCORE_DISPLAY = 70
-MAX_DISPLAYED     = 6
+MAX_DISPLAYED     = 3   # 🔥 שונה מ-6 ל-3 עבור 93%+
+
+# 🔥 סדר עדיפות לשדות בפרופיל מוזמן
+FIELD_PRIORITY = {
+    'צד': ['צד', 'side', 'חתן', 'כלה', 'groom', 'bride'],
+    'קבוצה': ['קבוצה', 'group', 'משפחה', 'חברים', 'עבודה', 'family', 'friends', 'work'],
+    'כמות מוזמנים': ['כמות', 'quantity', 'מוזמנים', 'אורחים', 'guests', 'כמות מוזמנים'],
+    'כתובת': ['כתובת', 'address', 'עיר', 'רחוב', 'city', 'street'],
+    'שולחן': ['שולחן', 'table', 'מספר שולחן', 'table number'],
+    'הערות': ['הערות', 'notes', 'comments', 'מידע', 'הערה', 'info', 'note']
+}
 
 # הרשאות/Scopes לקריאה בלבד
 SCOPES = [
@@ -255,7 +265,6 @@ def _resolve_full_name_series(df: pd.DataFrame) -> pd.Series:
     last  = [c for c in cols if "משפחה" in low[c] or low[c] in {"last", "lastname", "surname", "family"}]
     
     if first and last:
-        # בחר את העמודות הטובות ביותר
         f = first[0]
         l = last[0]
         return (df[f].fillna("").astype(str).str.strip() + " " +
@@ -264,7 +273,6 @@ def _resolve_full_name_series(df: pd.DataFrame) -> pd.Series:
     # חיפוש עמודות דמויות שם
     name_like = [c for c in cols if any(k in low[c] for k in ["שם", "name", "guest", "מוזמן"])]
     if name_like:
-        # בחר עמודה עם הכי הרבה תוכן
         best_col = max(name_like, key=lambda col: df[col].astype(str).str.len().mean())
         return df[best_col].fillna("").astype(str).str.strip()
     
@@ -307,12 +315,10 @@ def load_excel_flexible(file) -> pd.DataFrame:
         
         if is_contacts_file:
             print("📞 Detected contacts file with fixed format")
-            # פורמט קבוע: A=טלפון, C=שם מלא
             standard_df[PHONE_COL] = df.iloc[:, 0].astype(str).str.strip()
             standard_df[NAME_COL] = df.iloc[:, 2].astype(str).str.strip()
         else:
             print("👰 Detected guests file - using flexible detection")
-            # זיהוי אוטומטי לקובץ מוזמנים
             column_mapping = smart_column_mapping(df)
             relevant_fields = identify_relevant_fields(df)
             
@@ -439,9 +445,8 @@ def create_guests_template() -> pd.DataFrame:
     })
     return template
 
-# הפונקציה הישנה נשארת לתאימות לאחור
 def load_excel(file) -> pd.DataFrame:
-    """טוען CSV/XLSX עם זיהוי אוטומטי"""
+    """טוען CSV/XLSX עם זיהוי אוטומטי (backwards compatibility)"""
     return load_excel_flexible(file)
 
 # 🔥 אלגוריתם התאמה משופר (3 רכיבים משוקללים)
@@ -454,19 +459,16 @@ def full_score(g_norm: str, c_norm: str) -> int:
         
     g_t, c_t = _tokens(g_norm), _tokens(c_norm)
     
-    # התאמה מלאה לאחר ניקוי
     if g_t == c_t:
         return AUTO_SCORE
     
     if not g_t or not c_t:
         return fuzz.partial_ratio(g_norm, c_norm)
     
-    # 🔥 חישוב 3 רכיבים משוקללים
-    tr = fuzz.token_set_ratio(" ".join(g_t), " ".join(c_t)) / 100  # 60%
-    fr = fuzz.ratio(g_t[0], c_t[0]) / 100  # 20% - התאמת טוקן ראשון
-    jr = _fuzzy_jaccard(g_t, c_t)  # 20% - Fuzzy Jaccard
+    tr = fuzz.token_set_ratio(" ".join(g_t), " ".join(c_t)) / 100
+    fr = fuzz.ratio(g_t[0], c_t[0]) / 100
+    jr = _fuzzy_jaccard(g_t, c_t)
     
-    # ענישה קלה על פער טוקנים >= 2
     gap = abs(len(g_t) - len(c_t))
     penalty = (min(len(g_t), len(c_t)) / max(len(g_t), len(c_t))) if gap >= 2 else 1
     
@@ -482,16 +484,13 @@ def reason_for(g_norm: str, c_norm: str, score: int) -> str:
         return "התאמה גבוהה"
     return ""
 
-# 🔥 ייצוא חכם יותר (מחיקת שם כפול)
 def to_buf(df: pd.DataFrame) -> BytesIO:
     """ייצוא ל-Excel: מסיר עמודות פנימיות"""
-    # מחק עמודות פנימיות
     export = df.drop(
         columns=["norm_name", "score", "best_score"], 
         errors="ignore"
     ).copy()
     
-    # סדר עמודות: כל העמודות המקוריות, טלפון בסוף
     if PHONE_COL in export.columns:
         cols = [col for col in export.columns if col != PHONE_COL]
         cols.append(PHONE_COL)
@@ -504,20 +503,28 @@ def to_buf(df: pd.DataFrame) -> BytesIO:
     return buf
 
 # ───────── מערכת התאמות מתקדמת ─────────
-def top_matches(guest_norm: str, contacts_df: pd.DataFrame) -> pd.DataFrame:
+def top_matches(guest_norm: str, contacts_df: pd.DataFrame, limit_to_three: bool = False) -> pd.DataFrame:
     """
     🔥 בחירת מועמדים הטובים ביותר עם בחירה אוטומטית ב-93%+
+    🔥 limit_to_three=True → רק 3 תוצאות עבור 93%+
     """
     if not guest_norm:
         return pd.DataFrame(columns=list(contacts_df.columns) + ["score", "reason"])
 
-    # חישוב ציונים
     scores = contacts_df["norm_name"].apply(lambda c: full_score(guest_norm, c))
-    df     = contacts_df.assign(score=scores)
+    df = contacts_df.assign(score=scores)
 
-    # בדיקה אם יש Perfect Match (100%)
     max_score = int(df["score"].max())
-    if max_score == AUTO_SCORE:
+    
+    # 🔥 אם התאמה מושלמת או 93%+ → הגבל ל-3 מועמדים >= 90
+    if limit_to_three and max_score >= AUTO_SELECT_TH:
+        candidates = (
+            df[df["score"] >= 90]
+            .sort_values(["score", NAME_COL], ascending=[False, True])
+            .head(3)  # 🔥 רק 3!
+            .copy()
+        )
+    elif max_score == AUTO_SCORE:
         candidates = (
             df[df["score"] >= 90]
             .sort_values(["score", NAME_COL], ascending=[False, True])
@@ -532,7 +539,6 @@ def top_matches(guest_norm: str, contacts_df: pd.DataFrame) -> pd.DataFrame:
             .copy()
         )
 
-    # הוסף reason - תיקון: צור Series חדש במקום apply
     if len(candidates) > 0:
         reason_series = candidates.apply(
             lambda row: reason_for(guest_norm, row["norm_name"], row["score"]),
@@ -543,12 +549,29 @@ def top_matches(guest_norm: str, contacts_df: pd.DataFrame) -> pd.DataFrame:
 
     return candidates
 
-# 🔥 חילוץ פרטי מוזמן רלוונטיים
+# 🔥 חילוץ פרטי מוזמן רלוונטיים - חכם!
+def extract_smart_fields(guest_details: dict) -> dict:
+    """
+    🔥 חילוץ חכם של שדות לפי סדר עדיפות
+    מחזיר רק שדות שנמצאו בקובץ
+    """
+    result = {}
+    
+    for display_name, keywords in FIELD_PRIORITY.items():
+        for key in guest_details.keys():
+            key_lower = key.lower()
+            if any(kw in key_lower for kw in keywords):
+                value = guest_details[key]
+                if value and str(value).strip():
+                    result[display_name] = str(value).strip()
+                break
+    
+    return result
+
 def extract_relevant_guest_details(row: pd.Series) -> Dict:
     """חילוץ רק הפרטים הרלוונטיים של מוזמן"""
     details = {}
     
-    # כל העמודות מלבד פנימיות
     exclude_cols = {NAME_COL, PHONE_COL, "norm_name", "score", "best_score"}
     
     for col in row.index:
@@ -557,7 +580,6 @@ def extract_relevant_guest_details(row: pd.Series) -> Dict:
     
     return details
 
-# 🔥 חישוב ציון מקסימלי לכל מוזמן
 def compute_best_scores(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> pd.DataFrame:
     """מחשב את הציון הגבוה ביותר לכל מוזמן"""
     best_scores = []
@@ -571,24 +593,36 @@ def compute_best_scores(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> p
     guests_df["best_score"] = best_scores
     return guests_df
 
-# 🔥 פונקציה מרכזית לעיבוד התאמות
+# 🔥 פונקציה מרכזית לעיבוד התאמות - משודרגת!
 def process_matching_results(guests_df: pd.DataFrame, contacts_df: pd.DataFrame, contacts_source: str = "file") -> List[Dict]:
     """
-    עיבוד מלא של כל המוזמנים מול אנשי הקשר
-    מחזיר רשימה של דיקטים עם כל המידע הדרוש ל-frontend
+    🔥 עיבוד מלא עם מיון חכם:
+    1. קודם כל ההתאמות המושלמות (100%) - עד 30
+    2. אחר כך התאמות גבוהות (93-99%)
+    3. אחר כך טובות (70-92%)
+    4. בסוף חלשות (<70)
     """
     results = []
     
     # חשב ציונים מקסימליים
     guests_with_scores = compute_best_scores(guests_df, contacts_df)
     
+    # 🔥 מיון חכם - 100% ראשון!
+    perfect_matches = []
+    auto_matches = []
+    good_matches = []
+    weak_matches = []
+    
     for _, guest_row in guests_with_scores.iterrows():
         guest_name = guest_row[NAME_COL]
         guest_norm = guest_row["norm_name"]
         best_score = guest_row["best_score"]
         
+        # קביעה אם להגביל ל-3 תוצאות
+        limit_to_three = best_score >= AUTO_SELECT_TH
+        
         # מצא מועמדים
-        matches = top_matches(guest_norm, contacts_df)
+        matches = top_matches(guest_norm, contacts_df, limit_to_three=limit_to_three)
         
         # המר מועמדים לפורמט frontend
         candidates = []
@@ -607,21 +641,59 @@ def process_matching_results(guests_df: pd.DataFrame, contacts_df: pd.DataFrame,
             if match_row["score"] >= AUTO_SELECT_TH and auto_selected is None:
                 auto_selected = candidate
         
-        # חלץ פרטים רלוונטיים של המוזמן
-        guest_details = extract_relevant_guest_details(guest_row)
+        # 🔥 חילוץ חכם של פרטי מוזמן
+        raw_details = extract_relevant_guest_details(guest_row)
+        guest_details = extract_smart_fields(raw_details)
         
         result = {
             "guest": guest_name,
             "guest_details": guest_details,
             "candidates": candidates,
             "best_score": best_score,
-            "auto_selected": auto_selected  # 🔥 מוסיף בחירה אוטומטית
+            "auto_selected": auto_selected
         }
         
-        results.append(result)
+        # 🔥 סיווג לפי ציון
+        if best_score == 100:
+            perfect_matches.append(result)
+        elif best_score >= AUTO_SELECT_TH:
+            auto_matches.append(result)
+        elif best_score >= 70:
+            good_matches.append(result)
+        else:
+            weak_matches.append(result)
     
-    return results
+    # 🔥 מיזוג עם הגבלה של 30 מושלמים
+    sorted_results = perfect_matches[:30] + auto_matches + good_matches + weak_matches
+    
+    return sorted_results
 
+# logic.py - נוסיף פונקציה לבדיקת תקינות
+def validate_dataframes(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> tuple[bool, str]:
+    """בודק שה-DataFrames תקינים לפני עיבוד"""
+    
+    if guests_df is None or len(guests_df) == 0:
+        return False, "קובץ המוזמנים ריק או לא תקין"
+    
+    if NAME_COL not in guests_df.columns:
+        return False, f"חסרה עמודה '{NAME_COL}' בקובץ המוזמנים"
+    
+    if "norm_name" not in guests_df.columns:
+        return False, "שגיאת עיבוד - חסרה נורמליזציה של שמות מוזמנים"
+    
+    if contacts_df is None or len(contacts_df) == 0:
+        return False, "קובץ אנשי הקשר ריק או לא תקין"
+    
+    if NAME_COL not in contacts_df.columns:
+        return False, f"חסרה עמודה '{NAME_COL}' בקובץ אנשי הקשר"
+    
+    if PHONE_COL not in contacts_df.columns:
+        return False, f"חסרה עמודה '{PHONE_COL}' בקובץ אנשי הקשר"
+    
+    if "norm_name" not in contacts_df.columns:
+        return False, "שגיאת עיבוד - חסרה נורמליזציה של שמות אנשי קשר"
+    
+    return True, "OK"
 
 # ───────── מערכת הרשאות: Google Sheets + קובץ גיבוי ─────────
 def _pick_worksheet(sh):
@@ -699,36 +771,6 @@ def _load_allowed_from_excel() -> set[str]:
     allowed = {only_digits(str(v)) for v in df[phone_col] if only_digits(str(v))}
     logging.info("Loaded %d allowed phones from local Excel.", len(allowed))
     return allowed
-
-# logic.py - נוסיף פונקציה לבדיקת תקינות
-def validate_dataframes(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> tuple[bool, str]:
-    """בודק שה-DataFrames תקינים לפני עיבוד"""
-    
-    # בדיקת מוזמנים
-    if guests_df is None or len(guests_df) == 0:
-        return False, "קובץ המוזמנים ריק או לא תקין"
-    
-    if NAME_COL not in guests_df.columns:
-        return False, f"חסרה עמודה '{NAME_COL}' בקובץ המוזמנים"
-    
-    if "norm_name" not in guests_df.columns:
-        return False, "שגיאת עיבוד - חסרה נורמליזציה של שמות מוזמנים"
-    
-    # בדיקת אנשי קשר
-    if contacts_df is None or len(contacts_df) == 0:
-        return False, "קובץ אנשי הקשר ריק או לא תקין"
-    
-    if NAME_COL not in contacts_df.columns:
-        return False, f"חסרה עמודה '{NAME_COL}' בקובץ אנשי הקשר"
-    
-    if PHONE_COL not in contacts_df.columns:
-        return False, f"חסרה עמודה '{PHONE_COL}' בקובץ אנשי הקשר"
-    
-    if "norm_name" not in contacts_df.columns:
-        return False, "שגיאת עיבוד - חסרה נורמליזציה של שמות אנשי קשר"
-    
-    return True, "OK"
-
 
 def is_user_authorized(phone: str) -> bool:
     """True אם המספר מופיע ברשימת המורשים"""

@@ -1,70 +1,52 @@
 #!/usr/bin/env python3
 """
 ==============================================
-    Guest Matcher API v3.0
+    Guest Matcher API v4.0 - UPGRADED
 ==============================================
-Production-ready backend for matching wedding guests with contacts
-
-Features:
-- Smart matching algorithm (93%+ auto-selection)
-- Mobile contacts support
-- File validation & rate limiting
-- Google Sheets database
-- WhatsApp authentication
-- Memory optimized
-- Error recovery
-- Request tracking
+🔥 שדרוגים:
+- מערכת מגבלות 24 שעות מדויקת
+- טעינת קובץ לפי מגבלה יומית
+- הגבלת תוצאות ל-3 עבור 93%+
+- מיון חכם (100% ראשון)
+- שמירה אוטומטית כל 10 מוזמנים
+- Recovery מקריסה
+- פרופיל מוזמן חכם
 """
 
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import Optional, Dict, Any
 import traceback
 import gc
+import json
 
 # ============================================================
 #                    LOGGING SETUP
 # ============================================================
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] %(message)s',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
-
-# Custom filter to add request_id to logs
-class RequestIdFilter(logging.Filter):
-    def filter(self, record):
-        if not hasattr(record, 'request_id'):
-            record.request_id = 'system'
-        return True
-
-logger.addFilter(RequestIdFilter())
-
-logger.info("🚀 Starting Guest Matcher API v3.0...")
+logger.info("🚀 Starting Guest Matcher API v4.0 - UPGRADED...")
 
 # ============================================================
 #                    IMPORTS
 # ============================================================
 try:
-    logger.info("📦 Importing libraries...")
-    
-    # Standard Library
     import os
-    import json
     import re
     import hashlib
     import random
     import time
     from io import BytesIO
     
-    # Port Configuration
     PORT = os.environ.get('PORT', '8080')
     logger.info(f"✅ Port: {PORT}")
     
-    # FastAPI & Web
     from fastapi import FastAPI, UploadFile, File, HTTPException, Request, BackgroundTasks
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse, JSONResponse
@@ -73,15 +55,12 @@ try:
     
     logger.info("✅ FastAPI imported")
     
-    # Data Processing
     import pandas as pd
     logger.info("✅ Pandas imported")
     
-    # Google Cloud
     from google.oauth2 import service_account
     logger.info("✅ Google Auth imported")
     
-    # Custom Logic Module
     from logic import (
         load_excel_flexible,
         load_mobile_contacts,
@@ -110,11 +89,13 @@ except Exception as e:
 #                    CONFIGURATION
 # ============================================================
 
-# Business Constants
+# 🔥 מגבלות משודרגות
 DAILY_LIMIT = 30
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_FILE_SIZE = 50 * 1024 * 1024
 RATE_LIMIT_PER_MINUTE = 100
 ALLOWED_FILE_TYPES = {'.xlsx', '.xls', '.csv'}
+CHECKPOINT_INTERVAL = 10  # 🔥 שמירה כל 10 מוזמנים
+RESET_INTERVAL_HOURS = 24  # 🔥 איפוס כל 24 שעות
 
 # Environment Variables
 GREEN_API_ID = os.environ.get('GREEN_API_ID')
@@ -123,13 +104,11 @@ GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
 GOOGLE_SHEET_NAME = os.environ.get('GOOGLE_SHEET_NAME', 'users1')
 GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
 
-# Construct URLs
 GREEN_API_URL = None
 if GREEN_API_ID and GREEN_API_TOKEN:
     GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
     logger.info("✅ WhatsApp configured")
 
-# Validation
 missing_vars = []
 for var_name, var_value in [
     ('GREEN_API_ID', GREEN_API_ID),
@@ -146,7 +125,7 @@ else:
     logger.info("✅ All environment variables configured")
 
 # In-Memory Storage
-pending_codes: Dict[str, str] = {}
+pending_codes: Dict[str, Dict[str, Any]] = {}  # 🔥 משודרג - כולל timestamp
 rate_limit_tracker: Dict[str, list] = {}
 _google_client = None
 
@@ -158,11 +137,10 @@ logger.info("✅ Configuration complete")
 
 app = FastAPI(
     title="Guest Matcher API",
-    version="3.0.0",
-    description="Production-ready wedding guest matching system"
+    version="4.0.0",
+    description="Production-ready wedding guest matching system - UPGRADED"
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -173,33 +151,7 @@ app.add_middleware(
 logger.info("✅ CORS configured")
 
 # ============================================================
-#                    MIDDLEWARE
-# ============================================================
-
-@app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    """Add unique request ID to each request"""
-    request_id = f"{int(time.time()*1000)}-{random.randint(1000,9999)}"
-    request.state.request_id = request_id
-    
-    # Add to logging context
-    old_factory = logging.getLogRecordFactory()
-    def record_factory(*args, **kwargs):
-        record = old_factory(*args, **kwargs)
-        record.request_id = request_id
-        return record
-    logging.setLogRecordFactory(record_factory)
-    
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    
-    # Restore old factory
-    logging.setLogRecordFactory(old_factory)
-    
-    return response
-
-# ============================================================
-#                    HELPER FUNCTIONS
+#                    GOOGLE SHEETS FUNCTIONS
 # ============================================================
 
 def get_google_client():
@@ -242,16 +194,165 @@ async def get_worksheet():
         try:
             ws = sh.worksheet(GOOGLE_SHEET_NAME)
         except:
-            ws = sh.add_worksheet(title=GOOGLE_SHEET_NAME, rows="1000", cols="10")
-            headers = ['id', 'full_name', 'phone', 'join_date', 'last_activity',
-                      'daily_matches_used', 'current_file_hash', 'current_progress', 'is_premium']
-            ws.update('A1:I1', [headers])
+            ws = sh.add_worksheet(title=GOOGLE_SHEET_NAME, rows="1000", cols="12")
+            headers = ['id', 'full_name', 'phone', 'join_date', 'last_reset', 
+                      'daily_matches_used', 'current_file_hash', 'current_progress', 
+                      'is_premium', 'saved_selections', 'last_checkpoint_time', 'total_guests']
+            ws.update('A1:L1', [headers])
             logger.info(f"✅ Created worksheet: {GOOGLE_SHEET_NAME}")
             
         return ws
     except Exception as e:
         logger.error(f"❌ Worksheet error: {e}")
         return None
+
+# 🔥 פונקציות מגבלות 24 שעות
+async def check_and_reset_if_needed(phone: str) -> Dict[str, Any]:
+    """
+    🔥 בודק אם עברו 24 שעות ומאפס את המונה
+    מחזיר: dict עם daily_matches_used, is_premium, needs_reset
+    """
+    try:
+        ws = await get_worksheet()
+        if not ws:
+            return {"daily_matches_used": 0, "is_premium": False, "needs_reset": False}
+        
+        all_values = ws.get_all_values()
+        
+        for i, row in enumerate(all_values[1:], 2):
+            if len(row) > 2 and row[2] == phone:
+                last_reset_str = row[4] if len(row) > 4 else ""
+                daily_used = int(row[5]) if len(row) > 5 and row[5] else 0
+                is_premium = bool(row[8]) if len(row) > 8 and row[8] else False
+                
+                # 🔥 בדיקת 24 שעות
+                now = datetime.now()
+                needs_reset = False
+                
+                if last_reset_str:
+                    try:
+                        last_reset = datetime.fromisoformat(last_reset_str)
+                        hours_passed = (now - last_reset).total_seconds() / 3600
+                        
+                        if hours_passed >= RESET_INTERVAL_HOURS:
+                            needs_reset = True
+                            # איפוס
+                            ws.update(f"E{i}", now.isoformat())  # last_reset
+                            ws.update(f"F{i}", 0)  # daily_matches_used
+                            daily_used = 0
+                            logger.info(f"♻️ Reset daily limit for {phone} after {hours_passed:.1f} hours")
+                    except:
+                        needs_reset = True
+                        ws.update(f"E{i}", now.isoformat())
+                        ws.update(f"F{i}", 0)
+                        daily_used = 0
+                else:
+                    # אין תאריך - הגדר עכשיו
+                    ws.update(f"E{i}", now.isoformat())
+                
+                return {
+                    "daily_matches_used": daily_used,
+                    "is_premium": is_premium,
+                    "needs_reset": needs_reset,
+                    "last_reset": now.isoformat()
+                }
+        
+        # משתמש חדש
+        return {"daily_matches_used": 0, "is_premium": False, "needs_reset": False}
+        
+    except Exception as e:
+        logger.error(f"❌ Check reset failed: {e}")
+        return {"daily_matches_used": 0, "is_premium": False, "needs_reset": False}
+
+async def get_remaining_limit(phone: str) -> int:
+    """🔥 מחזיר כמה התאמות נותרו למשתמש"""
+    user_data = await check_and_reset_if_needed(phone)
+    
+    if user_data.get("is_premium"):
+        return 999999  # ללא הגבלה
+    
+    return max(0, DAILY_LIMIT - user_data.get("daily_matches_used", 0))
+
+async def calculate_reset_time(phone: str) -> str:
+    """🔥 מחשב מתי המגבלה תתאפס"""
+    try:
+        ws = await get_worksheet()
+        if not ws:
+            return "24 שעות"
+        
+        all_values = ws.get_all_values()
+        
+        for row in all_values[1:]:
+            if len(row) > 2 and row[2] == phone:
+                last_reset_str = row[4] if len(row) > 4 else ""
+                
+                if last_reset_str:
+                    last_reset = datetime.fromisoformat(last_reset_str)
+                    reset_time = last_reset + timedelta(hours=RESET_INTERVAL_HOURS)
+                    hours_left = (reset_time - datetime.now()).total_seconds() / 3600
+                    
+                    if hours_left > 0:
+                        return f"{int(hours_left)} שעות ו-{int((hours_left % 1) * 60)} דקות"
+        
+        return "24 שעות"
+        
+    except Exception as e:
+        logger.error(f"❌ Calculate reset time failed: {e}")
+        return "24 שעות"
+
+# 🔥 שמירת checkpoint
+async def save_checkpoint(phone: str, file_hash: str, progress: int, selections: dict):
+    """שמירת התקדמות כל 10 מוזמנים"""
+    try:
+        ws = await get_worksheet()
+        if not ws:
+            return
+        
+        all_values = ws.get_all_values()
+        
+        for i, row in enumerate(all_values[1:], 2):
+            if len(row) > 2 and row[2] == phone:
+                ws.update(f"G{i}", file_hash)  # current_file_hash
+                ws.update(f"H{i}", progress)  # current_progress
+                ws.update(f"J{i}", json.dumps(selections))  # saved_selections
+                ws.update(f"K{i}", datetime.now().isoformat())  # last_checkpoint_time
+                logger.info(f"💾 Checkpoint saved for {phone}: progress={progress}")
+                break
+                
+    except Exception as e:
+        logger.error(f"❌ Save checkpoint failed: {e}")
+
+# 🔥 שחזור checkpoint
+async def load_checkpoint(phone: str, file_hash: str) -> Optional[Dict]:
+    """טעינת התקדמות שמורה"""
+    try:
+        ws = await get_worksheet()
+        if not ws:
+            return None
+        
+        all_values = ws.get_all_values()
+        
+        for row in all_values[1:]:
+            if len(row) > 2 and row[2] == phone:
+                saved_hash = row[6] if len(row) > 6 else ""
+                saved_progress = int(row[7]) if len(row) > 7 and row[7] else 0
+                saved_selections = row[9] if len(row) > 9 else "{}"
+                
+                if saved_hash == file_hash and saved_progress > 0:
+                    return {
+                        "progress": saved_progress,
+                        "selections": json.loads(saved_selections) if saved_selections else {}
+                    }
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Load checkpoint failed: {e}")
+        return None
+
+# ============================================================
+#                    HELPER FUNCTIONS
+# ============================================================
 
 def format_phone_for_whatsapp(phone: str) -> str:
     """Format phone for WhatsApp (972xxxxxxxxx)"""
@@ -271,23 +372,19 @@ def check_rate_limit(identifier: str) -> bool:
     if identifier not in rate_limit_tracker:
         rate_limit_tracker[identifier] = []
     
-    # Remove old requests (older than 1 minute)
     rate_limit_tracker[identifier] = [
         req_time for req_time in rate_limit_tracker[identifier]
         if now - req_time < 60
     ]
     
-    # Check limit
     if len(rate_limit_tracker[identifier]) >= RATE_LIMIT_PER_MINUTE:
         return False
     
-    # Add new request
     rate_limit_tracker[identifier].append(now)
     return True
 
 def validate_file(file: UploadFile) -> tuple[bool, str]:
     """Validate uploaded file"""
-    # Check file extension
     if not file.filename:
         return False, "No filename provided"
     
@@ -319,10 +416,10 @@ async def log_user_to_sheets(phone: str, full_name: str = ""):
             all_values = []
             existing_row = None
         
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now().isoformat()
         
         if existing_row:
-            ws.update(f"E{existing_row}", current_time)
+            ws.update(f"D{existing_row}", current_time)  # last_activity (join_date stays same)
             if full_name and full_name.strip():
                 ws.update(f"B{existing_row}", full_name)
             logger.info(f"✅ Updated user: {phone}")
@@ -332,63 +429,18 @@ async def log_user_to_sheets(phone: str, full_name: str = ""):
             
             new_user_data = [
                 next_id, full_name or phone, phone, current_time, current_time,
-                0, "", 0, False
+                0, "", 0, False, "{}", "", 0
             ]
             
-            ws.update(f"A{next_row}:I{next_row}", [new_user_data])
+            ws.update(f"A{next_row}:L{next_row}", [new_user_data])
             logger.info(f"✅ Added user: {phone}")
             
     except Exception as e:
         logger.error(f"❌ Log user failed: {e}")
 
 async def get_user_data(phone: str) -> Dict[str, Any]:
-    """Get user data from sheets"""
-    default = {
-        "daily_matches_used": 0,
-        "is_premium": False,
-        "current_file_hash": "",
-        "current_progress": 0
-    }
-    
-    if not LOGIC_AVAILABLE or not GOOGLE_SHEET_ID:
-        return default
-        
-    try:
-        ws = await get_worksheet()
-        if not ws:
-            return default
-        
-        all_values = ws.get_all_values()
-        
-        for i, row in enumerate(all_values[1:], 2):
-            if len(row) > 2 and row[2] == phone:
-                today = datetime.now().date()
-                last_activity = row[4] if len(row) > 4 else ""
-                
-                daily_matches = int(row[5]) if len(row) > 5 and row[5] else 0
-                
-                if last_activity:
-                    try:
-                        last_date = datetime.strptime(last_activity.split()[0], "%Y-%m-%d").date()
-                        if last_date < today:
-                            daily_matches = 0
-                            ws.update(f"F{i}", 0)
-                            ws.update(f"E{i}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                    except:
-                        pass
-                
-                return {
-                    "daily_matches_used": daily_matches,
-                    "is_premium": bool(row[8]) if len(row) > 8 and row[8] else False,
-                    "current_file_hash": row[6] if len(row) > 6 else "",
-                    "current_progress": int(row[7]) if len(row) > 7 and row[7] else 0
-                }
-        
-        return default
-        
-    except Exception as e:
-        logger.error(f"❌ Get user data failed: {e}")
-        return default
+    """Get user data from sheets with 24h reset check"""
+    return await check_and_reset_if_needed(phone)
 
 async def update_user_progress(phone: str, matches_used: int = None, 
                               file_hash: str = None, progress: int = None):
@@ -405,8 +457,6 @@ async def update_user_progress(phone: str, matches_used: int = None,
         
         for i, row in enumerate(all_values[1:], 2):
             if len(row) > 2 and row[2] == phone:
-                ws.update(f"E{i}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                
                 if matches_used is not None:
                     ws.update(f"F{i}", matches_used)
                 if file_hash is not None:
@@ -432,7 +482,7 @@ async def root():
     """API root endpoint"""
     return {
         "name": "Guest Matcher API",
-        "version": "3.0.0",
+        "version": "4.0.0 - UPGRADED",
         "status": "operational",
         "features": {
             "matching": LOGIC_AVAILABLE,
@@ -441,7 +491,11 @@ async def root():
             "mobile_contacts": True,
             "auto_selection": True,
             "rate_limiting": True,
-            "file_validation": True
+            "file_validation": True,
+            "24h_reset": True,  # 🔥
+            "smart_sorting": True,  # 🔥
+            "checkpoint_save": True,  # 🔥
+            "smart_profile": True  # 🔥
         }
     }
 
@@ -466,7 +520,6 @@ async def send_code(data: dict, request: Request):
     if not phone:
         raise HTTPException(400, "Phone required")
     
-    # Rate limiting
     if not check_rate_limit(phone):
         raise HTTPException(429, "Too many requests. Try again later.")
     
@@ -475,7 +528,13 @@ async def send_code(data: dict, request: Request):
     
     formatted_phone = format_phone_for_whatsapp(phone)
     code = str(random.randint(1000, 9999))
-    pending_codes[phone] = code
+    
+    # 🔥 שמירה עם timestamp
+    pending_codes[phone] = {
+        "code": code,
+        "timestamp": time.time(),
+        "full_name": full_name
+    }
     
     payload = {
         "chatId": f"{formatted_phone}@c.us",
@@ -500,18 +559,34 @@ async def verify_code(data: dict):
     if not phone or not code:
         raise HTTPException(400, "Phone and code required")
     
-    if pending_codes.get(phone) == code:
-        pending_codes.pop(phone, None)
+    # 🔥 בדיקת תוקף (5 דקות)
+    if phone in pending_codes:
+        stored_data = pending_codes[phone]
+        stored_code = stored_data.get("code")
+        timestamp = stored_data.get("timestamp", 0)
         
-        await log_user_to_sheets(phone, full_name)
-        user_data = await get_user_data(phone)
+        # בדיקת פג תוקף
+        if time.time() - timestamp > 300:  # 5 minutes
+            pending_codes.pop(phone, None)
+            return {"status": "expired", "message": "הקוד פג תוקף"}
         
-        logger.info(f"✅ User verified: {phone}")
-        return {
-            "status": "success",
-            "daily_matches_used": user_data["daily_matches_used"],
-            "is_premium": user_data["is_premium"]
-        }
+        if stored_code == code:
+            pending_codes.pop(phone, None)
+            
+            await log_user_to_sheets(phone, full_name)
+            user_data = await get_user_data(phone)
+            
+            # 🔥 חישוב זמן איפוס
+            reset_time = await calculate_reset_time(phone)
+            
+            logger.info(f"✅ User verified: {phone}")
+            return {
+                "status": "success",
+                "daily_matches_used": user_data["daily_matches_used"],
+                "is_premium": user_data["is_premium"],
+                "remaining_matches": await get_remaining_limit(phone),
+                "reset_time": reset_time
+            }
     
     logger.warning(f"❌ Invalid code: {phone}")
     return {"status": "failed"}
@@ -524,11 +599,10 @@ async def merge_files(
     contacts_source: str = "file",
     background_tasks: BackgroundTasks = None
 ):
-    """Process and match guests with contacts"""
+    """Process and match guests with contacts - UPGRADED"""
     if not LOGIC_AVAILABLE:
         raise HTTPException(500, "Logic not available")
     
-    # Rate limiting
     if phone and not check_rate_limit(phone):
         raise HTTPException(429, "Too many requests")
     
@@ -539,21 +613,48 @@ async def merge_files(
             raise HTTPException(400, error)
     
     try:
-        # Read files
         logger.info("📂 Reading files...")
         guests_bytes = await guests_file.read()
         contacts_bytes = await contacts_file.read()
         
-        # Check file size
         if len(guests_bytes) > MAX_FILE_SIZE or len(contacts_bytes) > MAX_FILE_SIZE:
             raise HTTPException(400, f"File too large. Max: {MAX_FILE_SIZE/1024/1024}MB")
         
         file_hash = create_file_hash(guests_bytes)
         
+        # 🔥 בדיקת מגבלה יומית
+        if phone:
+            remaining = await get_remaining_limit(phone)
+            user_data = await get_user_data(phone)
+            
+            if remaining <= 0 and not user_data.get("is_premium"):
+                reset_time = await calculate_reset_time(phone)
+                raise HTTPException(403, {
+                    "error": "daily_limit_exceeded",
+                    "message": f"הגעת למגבלה היומית של {DAILY_LIMIT} התאמות",
+                    "reset_time": reset_time
+                })
+        
         # Process guests
         logger.info("👰 Processing guests...")
         guests_df = load_excel_flexible(BytesIO(guests_bytes))
         del guests_bytes
+        
+        total_guests = len(guests_df)
+        
+        # 🔥 הגבלת טעינה לפי מגבלה יומית
+        if phone:
+            remaining = await get_remaining_limit(phone)
+            user_data = await get_user_data(phone)
+            
+            if not user_data.get("is_premium") and total_guests > remaining:
+                logger.warning(f"⚠️ Limiting guests from {total_guests} to {remaining}")
+                guests_df = guests_df.head(remaining)
+                warning_message = f"נטענו {remaining} מוזמנים מתוך {total_guests} (יתרת מגבלה יומית)"
+            else:
+                warning_message = None
+        else:
+            warning_message = None
         
         # Process contacts
         logger.info(f"📞 Processing contacts ({contacts_source})...")
@@ -571,32 +672,92 @@ async def merge_files(
         if not is_valid:
             raise HTTPException(400, error)
         
+        # 🔥 בדיקת checkpoint קיים
+        checkpoint = None
+        if phone:
+            checkpoint = await load_checkpoint(phone, file_hash)
+        
         # Process matches
-        logger.info("🔄 Processing matches...")
+        logger.info("🔄 Processing matches with smart sorting...")
         results = process_matching_results(guests_df, contacts_df, contacts_source)
         
         del guests_df
         del contacts_df
         
-        # Cleanup
         if background_tasks:
             background_tasks.add_task(cleanup_memory)
         else:
             cleanup_memory()
         
         auto_count = sum(1 for r in results if r.get("auto_selected"))
-        logger.info(f"✅ Processed {len(results)} guests, {auto_count} auto-selected")
+        perfect_count = sum(1 for r in results if r.get("best_score") == 100)
         
-        return {
+        logger.info(f"✅ Processed {len(results)} guests")
+        logger.info(f"🎯 {perfect_count} perfect matches (100%)")
+        logger.info(f"✨ {auto_count} auto-selected (93%+)")
+        
+        response_data = {
             "results": results,
             "total_guests": len(results),
             "auto_selected_count": auto_count,
+            "perfect_matches_count": perfect_count,
             "file_hash": file_hash
         }
+        
+        if warning_message:
+            response_data["warning"] = warning_message
+            response_data["total_in_file"] = total_guests
+        
+        if checkpoint:
+            response_data["checkpoint"] = checkpoint
+        
+        return response_data
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Merge error: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(500, str(e))
+
+# 🔥 שמירת התקדמות
+@app.post("/save-checkpoint")
+async def save_checkpoint_endpoint(data: dict):
+    """Save progress checkpoint"""
+    phone = data.get("phone")
+    file_hash = data.get("file_hash")
+    progress = data.get("progress")
+    selections = data.get("selections", {})
+    
+    if not phone or not file_hash:
+        raise HTTPException(400, "Missing required fields")
+    
+    try:
+        await save_checkpoint(phone, file_hash, progress, selections)
+        return {"status": "success", "saved_at": datetime.now().isoformat()}
+    except Exception as e:
+        logger.error(f"❌ Save checkpoint endpoint error: {e}")
+        raise HTTPException(500, "Failed to save checkpoint")
+
+# 🔥 שחזור התקדמות
+@app.post("/load-checkpoint")
+async def load_checkpoint_endpoint(data: dict):
+    """Load saved progress"""
+    phone = data.get("phone")
+    file_hash = data.get("file_hash")
+    
+    if not phone or not file_hash:
+        raise HTTPException(400, "Missing required fields")
+    
+    try:
+        checkpoint = await load_checkpoint(phone, file_hash)
+        if checkpoint:
+            return {"status": "found", "checkpoint": checkpoint}
+        else:
+            return {"status": "not_found"}
+    except Exception as e:
+        logger.error(f"❌ Load checkpoint endpoint error: {e}")
+        raise HTTPException(500, "Failed to load checkpoint")
 
 @app.post("/export-results")
 async def export_results(data: dict):
@@ -677,23 +838,41 @@ async def download_guests_template():
         headers={"Content-Disposition": "attachment; filename=guests_template.xlsx"}
     )
 
+# 🔥 סטטיסטיקות משתמש משודרגות
 @app.get("/user-stats/{phone}")
 async def get_user_stats(phone: str):
-    """Get user statistics"""
+    """Get user statistics with 24h reset info"""
     try:
         user_data = await get_user_data(phone)
+        remaining = await get_remaining_limit(phone)
+        reset_time = await calculate_reset_time(phone)
         
         return {
             "phone": phone,
             "daily_matches_used": user_data["daily_matches_used"],
-            "daily_matches_remaining": max(0, DAILY_LIMIT - user_data["daily_matches_used"]),
+            "daily_matches_remaining": remaining,
             "is_premium": user_data["is_premium"],
-            "current_progress": user_data["current_progress"],
-            "daily_limit": DAILY_LIMIT
+            "daily_limit": DAILY_LIMIT,
+            "reset_time": reset_time,
+            "last_reset": user_data.get("last_reset", "")
         }
     except Exception as e:
         logger.error(f"❌ Stats error: {e}")
         raise HTTPException(500, "Failed to get stats")
+
+# 🔥 בדיקת סטטוס תשלום
+@app.get("/check-payment-status/{phone}")
+async def check_payment_status(phone: str):
+    """Check if user has paid for premium"""
+    try:
+        user_data = await get_user_data(phone)
+        return {
+            "is_premium": user_data.get("is_premium", False),
+            "phone": phone
+        }
+    except Exception as e:
+        logger.error(f"❌ Check payment error: {e}")
+        raise HTTPException(500, "Failed to check payment status")
 
 # ============================================================
 #                    STARTUP
@@ -711,5 +890,3 @@ if __name__ == "__main__":
         timeout_keep_alive=30,
         access_log=False
     )
-else:
-    logger.info("✅ App ready for Cloud Run")
