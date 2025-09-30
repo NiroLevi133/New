@@ -1,5 +1,5 @@
 # ─────────── ייצוא כל הפונקציות והקבועים הדרושים ל-main.py ───────────
-
+from __future__ import annotations
 __all__ = [
     # פונקציות עיבוד קבצים
     'load_excel_flexible',
@@ -39,7 +39,7 @@ __all__ = [
     'MAX_DISPLAYED',
 ]
 
-from __future__ import annotations
+
 
 import os, re, logging, json
 from io import BytesIO
