@@ -163,8 +163,6 @@ def get_google_client():
         raise Exception("Google credentials not configured")
     
     try:
-        import gspread
-        
         creds_info = json.loads(GOOGLE_CREDENTIALS_JSON)
         SCOPES = [
             "https://www.googleapis.com/auth/spreadsheets",
@@ -180,111 +178,6 @@ def get_google_client():
         return _google_client
         
     except Exception as e:
-        logger.error(f"❌ Export error: {e}")
-        raise HTTPException(500, str(e))
-
-@app.get("/download-contacts-template")
-async def download_contacts_template():
-    """Download contacts template"""
-    if not LOGIC_AVAILABLE:
-        raise HTTPException(500, "Logic not available")
-    
-    template_df = create_contacts_template()
-    excel_buffer = to_buf(template_df)
-    
-    return StreamingResponse(
-        BytesIO(excel_buffer.getvalue()),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=contacts_template.xlsx"}
-    )
-
-@app.get("/download-guests-template")
-async def download_guests_template():
-    """Download guests template"""
-    if not LOGIC_AVAILABLE:
-        raise HTTPException(500, "Logic not available")
-    
-    template_df = create_guests_template()
-    excel_buffer = to_buf(template_df)
-    
-    return StreamingResponse(
-        BytesIO(excel_buffer.getvalue()),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=guests_template.xlsx"}
-    )
-
-@app.get("/user-stats/{phone}")
-async def get_user_stats(phone: str):
-    """🔥 Get user statistics with remaining matches"""
-    try:
-        user_data = await check_and_reset_user(phone)
-        
-        return {
-            "phone": phone,
-            "remaining_matches": user_data["remaining_matches"],
-            "is_premium": user_data["is_premium"],
-            "daily_limit": DAILY_LIMIT,
-            "hours_until_reset": user_data["hours_until_reset"],
-            "formatted_reset_time": format_time_until_reset(user_data["hours_until_reset"])
-        }
-    except Exception as e:
-        logger.error(f"❌ Stats error: {e}")
-        raise HTTPException(500, "Failed to get stats")
-
-@app.get("/check-payment-status/{phone}")
-async def check_payment_status(phone: str):
-    """Check if user has paid for premium"""
-    try:
-        user_data = await check_and_reset_user(phone)
-        return {
-            "is_premium": user_data.get("is_premium", False),
-            "phone": phone,
-            "remaining_matches": user_data["remaining_matches"]
-        }
-    except Exception as e:
-        logger.error(f"❌ Check payment error: {e}")
-        raise HTTPException(500, "Failed to check payment status")
-
-@app.post("/webhook")
-async def webhook(request: Request):
-    """Webhook endpoint for external services"""
-    try:
-        body = await request.json()
-        logger.info(f"📨 Webhook received: {body}")
-        return {"status": "received"}
-    except Exception as e:
-        logger.error(f"❌ Webhook error: {e}")
-        return {"status": "error", "message": str(e)}
-
-# ============================================================
-#                    STARTUP
-# ============================================================
-
-logger.info("✅ All routes defined")
-
-if __name__ == "__main__":
-    port = int(PORT)
-    logger.info(f"🚀 Starting server on port {port}")
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        timeout_keep_alive=30,
-        access_log=False
-    )
-
-logger.info("✅ All routes defined")
-
-if __name__ == "__main__":
-    port = int(PORT)
-    logger.info(f"🚀 Starting server on port {port}")
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        timeout_keep_alive=30,
-        access_log=False
-    )
         logger.error(f"❌ Google Sheets failed: {e}")
         raise
 
@@ -874,3 +767,95 @@ async def export_results(data: dict):
         )
         
     except Exception as e:
+        logger.error(f"❌ Export error: {e}")
+        raise HTTPException(500, str(e))
+
+@app.get("/download-contacts-template")
+async def download_contacts_template():
+    """Download contacts template"""
+    if not LOGIC_AVAILABLE:
+        raise HTTPException(500, "Logic not available")
+    
+    template_df = create_contacts_template()
+    excel_buffer = to_buf(template_df)
+    
+    return StreamingResponse(
+        BytesIO(excel_buffer.getvalue()),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=contacts_template.xlsx"}
+    )
+
+@app.get("/download-guests-template")
+async def download_guests_template():
+    """Download guests template"""
+    if not LOGIC_AVAILABLE:
+        raise HTTPException(500, "Logic not available")
+    
+    template_df = create_guests_template()
+    excel_buffer = to_buf(template_df)
+    
+    return StreamingResponse(
+        BytesIO(excel_buffer.getvalue()),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=guests_template.xlsx"}
+    )
+
+@app.get("/user-stats/{phone}")
+async def get_user_stats(phone: str):
+    """Get user statistics with remaining matches"""
+    try:
+        user_data = await check_and_reset_user(phone)
+        
+        return {
+            "phone": phone,
+            "remaining_matches": user_data["remaining_matches"],
+            "is_premium": user_data["is_premium"],
+            "daily_limit": DAILY_LIMIT,
+            "hours_until_reset": user_data["hours_until_reset"],
+            "formatted_reset_time": format_time_until_reset(user_data["hours_until_reset"])
+        }
+    except Exception as e:
+        logger.error(f"❌ Stats error: {e}")
+        raise HTTPException(500, "Failed to get stats")
+
+@app.get("/check-payment-status/{phone}")
+async def check_payment_status(phone: str):
+    """Check if user has paid for premium"""
+    try:
+        user_data = await check_and_reset_user(phone)
+        return {
+            "is_premium": user_data.get("is_premium", False),
+            "phone": phone,
+            "remaining_matches": user_data["remaining_matches"]
+        }
+    except Exception as e:
+        logger.error(f"❌ Check payment error: {e}")
+        raise HTTPException(500, "Failed to check payment status")
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    """Webhook endpoint for external services"""
+    try:
+        body = await request.json()
+        logger.info(f"📨 Webhook received: {body}")
+        return {"status": "received"}
+    except Exception as e:
+        logger.error(f"❌ Webhook error: {e}")
+        return {"status": "error", "message": str(e)}
+
+# ============================================================
+#                    STARTUP
+# ============================================================
+
+logger.info("✅ All routes defined")
+
+if __name__ == "__main__":
+    port = int(PORT)
+    logger.info(f"🚀 Starting server on port {port}")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        timeout_keep_alive=30,
+        access_log=False
+    )
