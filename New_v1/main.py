@@ -52,7 +52,8 @@ try:
     logger.info("✅ Pandas imported")
     
     from google.oauth2 import service_account
-    logger.info("✅ Google Auth imported")
+    import gspread
+    logger.info("✅ Google Auth & gspread imported")
     
     from logic import (
         load_excel_flexible,
@@ -244,9 +245,33 @@ async def check_payment_status(phone: str):
         logger.error(f"❌ Check payment error: {e}")
         raise HTTPException(500, "Failed to check payment status")
 
+@app.post("/webhook")
+async def webhook(request: Request):
+    """Webhook endpoint for external services"""
+    try:
+        body = await request.json()
+        logger.info(f"📨 Webhook received: {body}")
+        return {"status": "received"}
+    except Exception as e:
+        logger.error(f"❌ Webhook error: {e}")
+        return {"status": "error", "message": str(e)}
+
 # ============================================================
 #                    STARTUP
 # ============================================================
+
+logger.info("✅ All routes defined")
+
+if __name__ == "__main__":
+    port = int(PORT)
+    logger.info(f"🚀 Starting server on port {port}")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        timeout_keep_alive=30,
+        access_log=False
+    )
 
 logger.info("✅ All routes defined")
 
