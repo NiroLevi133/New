@@ -12,6 +12,15 @@ const LimitDisplay = ({ currentUser, DAILY_LIMIT }) => {
   const remaining = currentUser.remainingMatches || 0;
   const percentage = (remaining / DAILY_LIMIT) * 100;
   
+  // פונקציה מקומית קצרה להצגת שעות (לשם הדגמה)
+  const formatTime = (hours) => {
+    if (hours <= 0) return "אופס!";
+    const h = Math.floor(hours);
+    const m = Math.floor((hours * 60) % 60);
+    if (h > 0) return `${h} שעות ו-${m} דקות`;
+    return `${m} דקות`;
+  };
+
   return (
     <div className={`limit-badge ${remaining <= 5 ? 'urgent' : ''}`}>
       <div className="limit-bar">
@@ -29,7 +38,7 @@ const LimitDisplay = ({ currentUser, DAILY_LIMIT }) => {
       </div>
       {remaining <= 0 && currentUser.hoursUntilReset > 0 && (
         <div className="reset-timer">
-          איפוס בעוד {Math.floor(currentUser.hoursUntilReset)} שעות
+          איפוס בעוד {formatTime(currentUser.hoursUntilReset)}
         </div>
       )}
     </div>
@@ -303,9 +312,7 @@ const GuestCard = ({
                   </div>
                 )}
               </div>
-              <div className="candidate-score">
-                {candidate.score}%
-              </div>
+              {/* 🛑 הוסר: <div className="candidate-score">{candidate.score}%</div> */}
             </div>
           );
         })}

@@ -134,7 +134,7 @@ const LandingPage = ({ onStart }) => {
   return (
     <div style={{ textAlign: 'center' }}>
       {/* כותרת מעודכנת */}
-      <h2>💍 מערכת התאמת אנשי קשר אוטומטית (ומהירה) למוזמנים שלך!</h2>
+      <h2>💍 מערכת התאמת אנשי קשר אוטומטית למוזמנים שלך!</h2>
       <p>
         כבר לא צריך לשבור את הראש! מעלים את רשימת המוזמנים מהאקסל ואת אנשי הקשר שלך, 
         והמערכת שלנו מתאימה אוטומטית את המספרים החסרים.
