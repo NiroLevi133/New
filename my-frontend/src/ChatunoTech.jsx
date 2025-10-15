@@ -49,7 +49,10 @@ const ChatunoTech = () => {
 
   // 🔥 Batch tracking
   const [matchesUsedInSession, setMatchesUsedInSession] = useState(0);
-  const isProcessingRef = useRef(false);  // 🔥 מונע לחיצות כפולות
+  const isProcessingRef = useRef(false);
+  const [skipFilledPhones, setSkipFilledPhones] = useState(false);  // 🔥 חדש - האם לדלג על מוזמנים עם טלפון קיים
+  const [phoneColumnInfo, setPhoneColumnInfo] = useState(null);  // 🔥 חדש - פרטי עמודת הטלפון
+  const [showPhoneColumnDialog, setShowPhoneColumnDialog] = useState(false);  // 🔥 חדש - פופאפ לשאלה
 
   // Check mobile support
   useEffect(() => {
@@ -221,10 +224,49 @@ const ChatunoTech = () => {
         setContactsSource('file');
       }
       
+      // 🔥 אם זה קובץ מוזמנים - בדוק אם יש עמודת טלפון
+      if (type === 'guests') {
+        await checkPhoneColumnInFile(file);
+      }
+      
       showMessage(`קובץ נטען בהצלחה`, 'success');
       
     } catch (error) {
       showMessage(`שגיאה: ${error.message}`, 'error');
+    }
+  };
+
+  // 🔥 בדיקת עמודת טלפון
+  const checkPhoneColumnInFile = async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append('guests_file', file);
+
+      const response = await fetch(`${API_BASE_URL}/check-phone-column`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPhoneColumnInfo(data);
+        
+        // 🔥 אם יש עמודת טלפון עם מספרים - שאל את המשתמש
+        if (data.has_phone_column && data.filled_count > 0) {
+          setShowPhoneColumnDialog(true);
+        } else {
+          // אין עמודה או שהיא ריקה - לא צריך לשאול
+          setSkipFilledPhones(false);
+          setShowPhoneColumnDialog(false);
+        }
+        
+        console.log('📞 Phone column info:', data);
+      }
+    } catch (error) {
+      console.error('❌ Check phone column error:', error);
+      setPhoneColumnInfo(null);
+      setSkipFilledPhones(false);
+      setShowPhoneColumnDialog(false);
     }
   };
 
@@ -301,6 +343,8 @@ const ChatunoTech = () => {
       formData.append('guests_file', uploadedFiles.guests);
       formData.append('phone', currentUser.phone);
       formData.append('contacts_source', contactsSource);
+      // 🔥 שליחת המשתנה החדש לשרת במיזוג 
+      formData.append('skip_filled_phones', skipFilledPhones ? 'true' : 'false'); 
 
       if (contactsSource === 'mobile') {
         const contactsBlob = new Blob([JSON.stringify(mobileContacts)], { type: 'application/json' });
@@ -451,11 +495,11 @@ const ChatunoTech = () => {
     showMessage(`✅ נבחר: ${contact.name}`, 'success');
   };
 
-  // 🔥 Next Guest - עם Debounce
+  // 🔥 Next Guest - עם בדיקת מגבלה
   const nextGuest = async () => {
     // 🔥 מניעת לחיצות כפולות
     if (isProcessingRef.current) {
-      console.log('⚠️ Already processing, ignoring click');
+      console.log('⚠️ Already processing');
       return;
     }
 
@@ -463,6 +507,32 @@ const ChatunoTech = () => {
     
     if (!selectedContacts[currentGuest.guest]) {
       showMessage('❌ אנא בחר מועמד', 'error');
+      return;
+    }
+
+    // 🔥 בדיקה אם נגמרו ההתאמות - **לפני** העדכון המקומי
+    if (!currentUser.isPro && currentUser.remainingMatches <= 1) {
+      isProcessingRef.current = true;
+      setIsLoading(true);
+      
+      // זו ההתאמה האחרונה!
+      showMessage('⏰ זו ההתאמה האחרונה שלך היום!', 'warning');
+      
+      // עדכון מקומי לפני ה-Batch
+      setMatchesUsedInSession(prev => prev + 1);
+      setCurrentUser(prev => ({
+        ...prev,
+        remainingMatches: 0 // מגיע ל-0
+      }));
+
+      await completeSession();
+      
+      setTimeout(() => {
+        setCurrentScreen('limitReached');
+        isProcessingRef.current = false;
+        setIsLoading(false);
+      }, 2000);
+      
       return;
     }
 
@@ -533,7 +603,7 @@ const ChatunoTech = () => {
     }
   };
 
-  // 🔥 Export - עם complete session
+  // 🔥 Export - עם skip_filled
   const exportResults = async () => {
     try {
       setIsLoading(true);
@@ -547,8 +617,10 @@ const ChatunoTech = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone: currentUser.phone,
-          results: matchingResults.slice(0, currentGuestIndex + 1),
-          selected_contacts: selectedContacts
+          // שליחת כל התוצאות, לא רק עד האינדקס הנוכחי
+          results: matchingResults, 
+          selected_contacts: selectedContacts,
+          skip_filled: skipFilledPhones // 🔥 הדגל החדש
         })
       });
 
@@ -818,7 +890,12 @@ const ChatunoTech = () => {
               setMatchingResults([]);
               setUploadedFiles({ guests: null, contacts: null });
               setMatchesUsedInSession(0);
-              setCurrentScreen('uploadScreen');
+              // 🔥 איפוס המשתנים החדשים
+              setSkipFilledPhones(false);
+              setPhoneColumnInfo(null);
+              setShowPhoneColumnDialog(false);
+              // 🔥 מעבר למסך ההעלאה
+              setCurrentScreen('uploadScreen'); 
             }}
           />
         )}
@@ -826,6 +903,82 @@ const ChatunoTech = () => {
         {/* Contacts Guide Modal */}
         {showContactsGuide && (
           <ContactsGuideModal onClose={() => setShowContactsGuide(false)} />
+        )}
+
+        {/* 🔥 Phone Column Dialog - שאלה חכמה */}
+        {showPhoneColumnDialog && phoneColumnInfo && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '20px'
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '20px',
+              padding: '30px',
+              maxWidth: '500px',
+              textAlign: 'center'
+            }}>
+              <h3 style={{ marginBottom: '20px' }}>📞 מצאנו עמודת טלפון בקובץ!</h3>
+              
+              <div style={{
+                background: '#f1f8ff',
+                padding: '15px',
+                borderRadius: '10px',
+                marginBottom: '20px',
+                textAlign: 'right'
+              }}>
+                <div>📊 <strong>סה״כ מוזמנים:</strong> {phoneColumnInfo.total_rows}</div>
+                <div>✅ <strong>עם מספר:</strong> {phoneColumnInfo.filled_count}</div>
+                <div>❌ <strong>בלי מספר:</strong> {phoneColumnInfo.empty_count}</div>
+              </div>
+
+              <p style={{ fontSize: '1.1rem', marginBottom: '25px' }}>
+                האם לדלג על מוזמנים שיש להם כבר מספר טלפון?
+              </p>
+
+              <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+                <button 
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setSkipFilledPhones(true);
+                    setShowPhoneColumnDialog(false);
+                    showMessage('✅ נדלג על מוזמנים עם מספר קיים', 'success');
+                  }}
+                >
+                  ✅ כן, דלג על מי שיש מספר
+                </button>
+                
+                <button 
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setSkipFilledPhones(false);
+                    setShowPhoneColumnDialog(false);
+                    showMessage('📝 נעדכן את כולם', 'success');
+                  }}
+                >
+                  📝 לא, עדכן את כולם
+                </button>
+              </div>
+
+              <p style={{ 
+                fontSize: '0.85rem', 
+                color: '#666', 
+                marginTop: '15px',
+                fontStyle: 'italic'
+              }}>
+                💡 המערכת תמלא רק את השורות שבחרת להתאים
+              </p>
+            </div>
+          </div>
         )}
 
         {/* Messages */}
