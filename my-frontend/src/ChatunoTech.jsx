@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './ChatunoTech.css';
 import { AuthScreen, LandingPage, LimitReachedScreen, ContactsGuideModal } from './AuthScreen';
 import { UploadScreen, MatchingSidebar, GuestCard, SuccessScreen } from './MatchingScreen';
@@ -47,6 +47,10 @@ const ChatunoTech = () => {
   const [autoSelectedCount, setAutoSelectedCount] = useState(0);
   const [perfectMatchesCount, setPerfectMatchesCount] = useState(0);
 
+  // 🔥 Batch tracking
+  const [matchesUsedInSession, setMatchesUsedInSession] = useState(0);
+  const isProcessingRef = useRef(false);  // 🔥 מונע לחיצות כפולות
+
   // Check mobile support
   useEffect(() => {
     checkMobileSupport();
@@ -71,7 +75,7 @@ const ChatunoTech = () => {
   };
 
   const formatResetTime = (hours) => {
-    if (hours <= 0) return "המגבלה אופסה!";
+    if (hours <= 0) return "ההגבלה אופסה!";
     const totalMinutes = Math.floor(hours * 60);
     const h = Math.floor(totalMinutes / 60);
     const m = totalMinutes % 60;
@@ -79,17 +83,17 @@ const ChatunoTech = () => {
     return `${m} דקות`;
   };
 
-  // 🔥 Auth Functions
+  // Auth Functions
   const sendCode = async () => {
     const phoneRegex = /^05\d{8}$/;
     if (!phoneRegex.test(phoneValue)) {
-      showMessage('❌ מספר טלפון לא תקין (צריך להתחיל ב-05 ו-10 ספרות)', 'error');
+      showMessage('❌ מספר טלפון לא תקין', 'error');
       return;
     }
 
     const nameRegex = /^[\u0590-\u05FFa-zA-Z\s]{2,}$/;
     if (!nameRegex.test(fullNameValue.trim())) {
-      showMessage('❌ שם לא תקין (רק אותיות בעברית/אנגלית, לפחות 2 תווים)', 'error');
+      showMessage('❌ שם לא תקין', 'error');
       return;
     }
 
@@ -107,7 +111,7 @@ const ChatunoTech = () => {
       });
 
       if (response.ok) {
-        showMessage('📱 קוד נשלח בהצלחה לווטסאפ!', 'success');
+        showMessage('📱 קוד נשלח בהצלחה!', 'success');
         setShowCodeInput(true);
         setCurrentUser((prev) => ({ 
           ...prev, 
@@ -149,7 +153,7 @@ const ChatunoTech = () => {
         const data = await response.json();
         
         if (data.status === 'expired') {
-          showMessage('⏰ הקוד פג תוקף. אנא שלח קוד חדש.', 'error');
+          showMessage('⏰ הקוד פג תוקף', 'error');
           setShowCodeInput(false);
           setCodeValue('');
           return;
@@ -163,21 +167,19 @@ const ChatunoTech = () => {
             hoursUntilReset: data.hours_until_reset || 0
           }));
 
-          // 🔥 פופאפ עם כמות ההתאמות
           if (data.is_premium) {
-            showMessage('✅ אומת בהצלחה! יש לך מנוי פרימיום ללא הגבלה! 💎', 'success');
+            showMessage('✅ פרימיום ללא הגבלה! 💎', 'success');
           } else {
             showMessage(
-              `✅ אומת בהצלחה! נותרו לך ${data.remaining_matches} התאמות היום (מתוך ${DAILY_LIMIT})`,
+              `✅ נותרו ${data.remaining_matches} התאמות (מתוך ${DAILY_LIMIT})`,
               'success'
             );
           }
           
           setTimeout(() => {
-            // 🔥 בדיקה אם נגמרו ההתאמות
             if (data.remaining_matches <= 0 && !data.is_premium) {
               showMessage(
-                `⏰ נגמרו ההתאמות היומיות. המגבלה תתאפס בעוד ${formatResetTime(data.hours_until_reset)}`,
+                `⏰ נגמרו ההתאמות. איפוס בעוד ${formatResetTime(data.hours_until_reset)}`,
                 'warning'
               );
               setTimeout(() => setCurrentScreen('limitReached'), 2000);
@@ -186,11 +188,11 @@ const ChatunoTech = () => {
             }
           }, 1000);
         } else {
-          showMessage('❌ קוד שגוי. נסה שוב.', 'error');
+          showMessage('❌ קוד שגוי', 'error');
         }
       }
     } catch (error) {
-      showMessage(`❌ שגיאה באימות הקוד: ${error.message}`, 'error');
+      showMessage(`❌ שגיאה: ${error.message}`, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -202,7 +204,7 @@ const ChatunoTech = () => {
     showMessage('ניתן לשלוח קוד חדש', 'info');
   };
 
-  // 🔥 File Upload
+  // File Upload
   const handleFileUpload = async (event, type) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -219,23 +221,23 @@ const ChatunoTech = () => {
         setContactsSource('file');
       }
       
-      showMessage(`קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'} נטען בהצלחה`, 'success');
+      showMessage(`קובץ נטען בהצלחה`, 'success');
       
     } catch (error) {
       showMessage(`שגיאה: ${error.message}`, 'error');
     }
   };
 
-  // 🔥 Mobile Contacts
+  // Mobile Contacts
   const requestMobileContacts = async () => {
     if (!('contacts' in navigator) || !('ContactsManager' in window)) {
-      showMessage('❌ הדפדפן לא תומך בגישה לאנשי קשר. השתמש בקובץ במקום.', 'error');
+      showMessage('❌ הדפדפן לא תומך', 'error');
       return;
     }
 
     try {
       setIsLoading(true);
-      showMessage('📱 מבקש גישה לאנשי קשר...', 'success');
+      showMessage('📱 מבקש גישה...', 'success');
 
       const contacts = await navigator.contacts.select(['name', 'tel'], { multiple: true });
       
@@ -249,10 +251,10 @@ const ChatunoTech = () => {
       setContactsSource('mobile');
       setUploadedFiles(prev => ({ ...prev, contacts: 'mobile_contacts' }));
       
-      showMessage(`✅ נטענו ${formattedContacts.length} אנשי קשר מהטלפון!`, 'success');
+      showMessage(`✅ נטענו ${formattedContacts.length} אנשי קשר!`, 'success');
       
     } catch (error) {
-      showMessage('❌ לא ניתן לגשת לאנשי קשר. בדוק הרשאות או השתמש בקובץ.', 'error');
+      showMessage('❌ לא ניתן לגשת לאנשי קשר', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -275,17 +277,16 @@ const ChatunoTech = () => {
     return Array.from(allContacts.values());
   };
 
-  // 🔥 Merge - עם טעינה חכמה
+  // Merge
   const startMerge = async () => {
     if (!uploadedFiles.guests || !uploadedFiles.contacts) {
-      showMessage('אנא וודא שהקבצים הועלו בהצלחה', 'error');
+      showMessage('אנא וודא שהקבצים הועלו', 'error');
       return;
     }
 
-    // 🔥 בדיקה לפני מיזוג
     if (!currentUser.isPro && currentUser.remainingMatches <= 0) {
       showMessage(
-        `⏰ נגמרו ההתאמות היומיות. חזור בעוד ${formatResetTime(currentUser.hoursUntilReset)}`,
+        `⏰ נגמרו ההתאמות. חזור בעוד ${formatResetTime(currentUser.hoursUntilReset)}`,
         'warning'
       );
       setTimeout(() => setCurrentScreen('limitReached'), 2000);
@@ -317,7 +318,7 @@ const ChatunoTech = () => {
         const errorData = await response.json();
         if (errorData.error === 'daily_limit_exceeded') {
           showMessage(
-            `⏰ נגמרו ההתאמות היומיות. חזור בעוד ${errorData.formatted_time || '24 שעות'}`,
+            `⏰ נגמרו ההתאמות`,
             'warning'
           );
           setTimeout(() => setCurrentScreen('limitReached'), 3000);
@@ -327,7 +328,7 @@ const ChatunoTech = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'שגיאה בעיבוד הקבצים');
+        throw new Error(errorData.detail || 'שגיאה בעיבוד');
       }
 
       const data = await response.json();
@@ -340,6 +341,7 @@ const ChatunoTech = () => {
       setAllContactsData(allContacts);
       
       setCurrentGuestIndex(0);
+      setMatchesUsedInSession(0);  // 🔥 איפוס המונה
 
       const autoSelections = {};
       data.results.forEach(result => {
@@ -356,19 +358,18 @@ const ChatunoTech = () => {
 
       if (data.perfect_matches_count > 0) {
         showMessage(
-          `🎯 מצאנו ${data.perfect_matches_count} התאמות מושלמות (100%)!`,
+          `🎯 ${data.perfect_matches_count} התאמות מושלמות (100%)!`,
           'success'
         );
       }
 
       if (data.auto_selected_count > 0) {
         showMessage(
-          `✨ ${data.auto_selected_count} מועמדים מומלצים מסומנים אוטומטית (93%+)`,
+          `✨ ${data.auto_selected_count} מומלצים (93%+)`,
           'success'
         );
       }
 
-      // 🔥 עדכון remaining matches מהשרת
       if (data.remaining_matches !== undefined) {
         setCurrentUser(prev => ({
           ...prev,
@@ -378,14 +379,14 @@ const ChatunoTech = () => {
 
       setCurrentScreen('matchingScreen');
     } catch (error) {
-      showMessage(`שגיאה במיזוג: ${error.message}`, 'error');
+      showMessage(`שגיאה: ${error.message}`, 'error');
       setCurrentScreen('uploadScreen');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 🔥 Select Candidate
+  // Select Candidate
   const selectCandidate = (candidate) => {
     const currentGuest = matchingResults[currentGuestIndex];
     setSelectedContacts((prev) => ({
@@ -397,15 +398,15 @@ const ChatunoTech = () => {
     setSearchInContacts('');
   };
 
-  // 🔥 Add Manual
+  // Add Manual
   const addManualContact = () => {
     if (!manualPhone.trim() || manualPhone.trim().length < 9) {
-      showMessage('אנא הזן מספר טלפון תקין', 'error');
+      showMessage('אנא הזן מספר תקין', 'error');
       return;
     }
 
     const newContact = {
-      name: '📞 מספר שהוספת ידנית',
+      name: '📞 מספר ידני',
       phone: manualPhone.trim(),
       score: 100,
       reason: 'הוסף ידנית',
@@ -413,10 +414,10 @@ const ChatunoTech = () => {
     };
 
     selectCandidate(newContact);
-    showMessage('✅ מספר נוסף בהצלחה!', 'success');
+    showMessage('✅ מספר נוסף!', 'success');
   };
 
-  // 🔥 Search
+  // Search
   const handleSearchInput = (value) => {
     setSearchInContacts(value);
     
@@ -441,7 +442,7 @@ const ChatunoTech = () => {
   const selectFromSuggestion = (contact) => {
     const selectedContact = {
       ...contact,
-      reason: 'נמצא בחיפוש ידני'
+      reason: 'נמצא בחיפוש'
     };
     selectCandidate(selectedContact);
     setSearchInContacts('');
@@ -450,63 +451,51 @@ const ChatunoTech = () => {
     showMessage(`✅ נבחר: ${contact.name}`, 'success');
   };
 
-  // 🔥 Next Guest - עם עדכון שרת
+  // 🔥 Next Guest - עם Debounce
   const nextGuest = async () => {
-    const currentGuest = matchingResults[currentGuestIndex];
-    
-    if (!selectedContacts[currentGuest.guest]) {
-      showMessage('❌ אנא בחר מועמד או סמן "לא נמצא" לפני המשך', 'error');
+    // 🔥 מניעת לחיצות כפולות
+    if (isProcessingRef.current) {
+      console.log('⚠️ Already processing, ignoring click');
       return;
     }
 
-    // 🔥 עדכון שרת
-    if (!currentUser.isPro) {
-      try {
-        const response = await fetch(`${API_BASE_URL}/next-guest`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phone: currentUser.phone
-          })
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to update');
-        }
-        
-        const data = await response.json();
-        
-        // ✅ עדכון מקומי רק אם הצליח
-        setCurrentUser(prev => ({
-          ...prev,
-          remainingMatches: data.remaining_matches
-        }));
-
-        // 🔥 התראות מדורגות
-        if (data.remaining_matches === 10) {
-          showMessage('⚠️ נותרו רק 10 התאמות היום!', 'warning');
-        } else if (data.remaining_matches === 5) {
-          showMessage('🔔 נותרו רק 5 התאמות - שקול לשדרג!', 'warning');
-        } else if (data.remaining_matches === 1) {
-          showMessage('⏰ זו ההתאמה האחרונה שלך היום', 'warning');
-        } else if (data.remaining_matches === 0) {
-          showMessage('✅ השלמת את כל ה-30 ההתאמות היומיות!', 'success');
-          setTimeout(() => setCurrentScreen('limitReached'), 2000);
-          return;
-        }
-        
-      } catch (error) {
-        showMessage('❌ שגיאה בעדכון. נסה שוב.', 'error');
-        return;
-      }
+    const currentGuest = matchingResults[currentGuestIndex];
+    
+    if (!selectedContacts[currentGuest.guest]) {
+      showMessage('❌ אנא בחר מועמד', 'error');
+      return;
     }
 
-    // 🔥 מעבר למוזמן הבא
-    const newIndex = currentGuestIndex + 1;
-    if (newIndex < matchingResults.length) {
-      setCurrentGuestIndex(newIndex);
-    } else {
-      setCurrentScreen('successScreen');
+    // 🔥 נעילה
+    isProcessingRef.current = true;
+    setIsLoading(true);
+
+    try {
+      // 🔥 עדכון מקומי בלבד
+      if (!currentUser.isPro) {
+        setMatchesUsedInSession(prev => prev + 1);
+        setCurrentUser(prev => ({
+          ...prev,
+          remainingMatches: Math.max(0, prev.remainingMatches - 1)
+        }));
+      }
+
+      // מעבר למוזמן הבא
+      const newIndex = currentGuestIndex + 1;
+      if (newIndex < matchingResults.length) {
+        setCurrentGuestIndex(newIndex);
+      } else {
+        // סיום - עדכון Batch
+        await completeSession();
+        setCurrentScreen('successScreen');
+      }
+      
+    } catch (error) {
+      showMessage('❌ שגיאה', 'error');
+    } finally {
+      // 🔥 שחרור הנעילה
+      isProcessingRef.current = false;
+      setIsLoading(false);
     }
   };
 
@@ -516,23 +505,55 @@ const ChatunoTech = () => {
     }
   };
 
-  // 🔥 Export
+  // 🔥 Complete Session - קורא בסוף
+  const completeSession = async () => {
+    if (!currentUser.phone || currentUser.isPro) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/complete-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: currentUser.phone,
+          matches_used: matchesUsedInSession
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update');
+      }
+      
+      const data = await response.json();
+      console.log(`✅ Session completed: ${matchesUsedInSession} matches used, ${data.remaining_matches} remaining`);
+      
+    } catch (error) {
+      console.error('❌ Complete session error:', error);
+    }
+  };
+
+  // 🔥 Export - עם complete session
   const exportResults = async () => {
     try {
       setIsLoading(true);
-      showMessage('📄 מכין קובץ לייצוא...', 'success');
+      showMessage('📄 מכין קובץ...', 'success');
+
+      // 🔥 עדכון Batch לפני ייצוא
+      await completeSession();
 
       const response = await fetch(`${API_BASE_URL}/export-results`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          phone: currentUser.phone,
           results: matchingResults.slice(0, currentGuestIndex + 1),
           selected_contacts: selectedContacts
         })
       });
 
       if (!response.ok) {
-        throw new Error('שגיאה בייצוא הקובץ');
+        throw new Error('שגיאה בייצוא');
       }
 
       const blob = await response.blob();
@@ -548,23 +569,22 @@ const ChatunoTech = () => {
 
       showMessage('✅ קובץ יוצא בהצלחה!', 'success');
     } catch (error) {
-      showMessage('❌ שגיאה בייצוא הקובץ', 'error');
+      showMessage('❌ שגיאה בייצוא', 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 🔥 Payment
+  // Payment
   const payWithWhatsApp = () => {
-    showMessage('מפנה לוואטסאפ לתשלום...', 'success');
+    showMessage('מפנה לוואטסאפ...', 'success');
     
-    const message = `שלום! אני רוצה לשדרג לגרסה המלאה (39 ש״ח)
-📱 מספר טלפון: ${currentUser.phone}
+    const message = `שלום! אני רוצה לשדרג לפרימיום (39₪)
+📱 טלפון: ${currentUser.phone}
 👤 שם: ${currentUser.fullName}
-📊 כמות מוזמנים: ${matchingResults.length}
-🔍 ID בקשה: ${Date.now()}
+📊 מוזמנים: ${matchingResults.length}
     
-אנא שלח לי קישור לביט לתשלום. תודה!`;
+תודה!`;
     
     const whatsappURL = `https://wa.me/972507676706?text=${encodeURIComponent(message)}`;
     window.open(whatsappURL, '_blank');
@@ -573,7 +593,7 @@ const ChatunoTech = () => {
   };
 
   const checkPaymentStatus = () => {
-    showMessage('🔄 בודק סטטוס תשלום...', 'success');
+    showMessage('🔄 בודק תשלום...', 'success');
     
     const checkInterval = setInterval(async () => {
       try {
@@ -585,12 +605,12 @@ const ChatunoTech = () => {
           if (data.is_premium) {
             clearInterval(checkInterval);
             setCurrentUser((prev) => ({ ...prev, isPro: true, remainingMatches: 999999 }));
-            showMessage('🎉 תשלום הושלם בהצלחה! אתה עכשיו Pro!', 'success');
+            showMessage('🎉 תשלום הושלם! אתה Pro!', 'success');
             setTimeout(() => setCurrentScreen('matchingScreen'), 2000);
           }
         }
       } catch (error) {
-        console.error('Error checking payment status:', error);
+        console.error('Error checking payment:', error);
       }
     }, 5000);
 
@@ -599,7 +619,7 @@ const ChatunoTech = () => {
     }, 300000);
   };
 
-  // 🔥 Filters
+  // Filters
   const getFilteredResults = () => {
     if (!matchingResults) return [];
     
@@ -636,7 +656,7 @@ const ChatunoTech = () => {
     return Array.from(values);
   };
 
-  // 🔥 RENDER
+  // RENDER
   return (
     <div className="app-container">
       <div className="content-card">
@@ -684,14 +704,14 @@ const ChatunoTech = () => {
           <div style={{ textAlign: 'center' }}>
             <h2>⏳ מבצע מיזוג...</h2>
             <div className="loading-spinner"></div>
-            <p>מנתח את הקבצים ומחפש התאמות...</p>
+            <p>מנתח קבצים...</p>
             <div style={{ 
               background: 'rgba(42, 157, 143, 0.1)', 
               padding: '15px', 
               borderRadius: '10px',
               margin: '20px 0'
             }}>
-              💡 <strong>טיפ:</strong> המערכת ממיינת את התוצאות - קודם כל ההתאמות המושלמות (100%), אחר כך הגבוהות (93%+)
+              💡 <strong>טיפ:</strong> המערכת ממיינת - קודם 100%, אחר כך 93%+
             </div>
           </div>
         )}
@@ -727,7 +747,7 @@ const ChatunoTech = () => {
                 const currentGuest = filteredResults[currentGuestIndex] || matchingResults[currentGuestIndex];
                 
                 if (!currentGuest) {
-                  return <div>אין מוזמנים להצגה</div>;
+                  return <div>אין מוזמנים</div>;
                 }
 
                 const isSelected = !!selectedContacts[currentGuest.guest];
@@ -764,7 +784,7 @@ const ChatunoTech = () => {
                       <button 
                         className="btn btn-secondary"
                         onClick={previousGuest}
-                        disabled={currentGuestIndex === 0}
+                        disabled={currentGuestIndex === 0 || isLoading}
                       >
                         ⬅️ הקודם
                       </button>
@@ -774,7 +794,7 @@ const ChatunoTech = () => {
                         onClick={nextGuest}
                         disabled={!isSelected || isLoading}
                       >
-                        {currentGuestIndex === filteredResults.length - 1 ? '🎉 סיים' : 'הבא ➡️'}
+                        {isLoading ? '⏳ מעבד...' : (currentGuestIndex === filteredResults.length - 1 ? '🎉 סיים' : 'הבא ➡️')}
                       </button>
                     </div>
                   </>
@@ -797,6 +817,7 @@ const ChatunoTech = () => {
               setSelectedContacts({});
               setMatchingResults([]);
               setUploadedFiles({ guests: null, contacts: null });
+              setMatchesUsedInSession(0);
               setCurrentScreen('uploadScreen');
             }}
           />
