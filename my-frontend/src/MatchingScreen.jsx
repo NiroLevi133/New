@@ -258,7 +258,7 @@ const GuestCard = ({
 
   return (
     <>
-\
+
 
       <div className="guest-card">
         <div className="guest-header">
