@@ -730,6 +730,7 @@ const ChatunoTech = () => {
   
   // 🔥 רכיב חדש לטיפול בטיימר של מסך הטעינה
   const LoadingScreenWithTimer = () => {
+    // משתנה שמחזיק את מצב הטיימר: האם עברו 10 שניות?
     const [showWaitMessage, setShowWaitMessage] = useState(false);
 
     useEffect(() => {
@@ -742,23 +743,37 @@ const ChatunoTech = () => {
       return () => clearTimeout(timer);
     }, []);
 
+    // 💡 הטיפ הקצר והראשי
+    const initialTip = '💡 <strong>טיפ:</strong> מומלץ לאחד קבצי אנשי קשר של החתן, הכלה והמשפחה לקובץ אחד לדיוק מירבי!';
+    
+    // ⏳ הטיפ שמוצג לאחר 10 שניות
+    const longWaitMessage = 'אל דאגה, לא נתקעתי! לפעמים לוקח לי זמן לחשוב ולמצוא התאמות.';
+
     return (
       <div style={{ textAlign: 'center' }}>
         <h2>⏳ מבצע מיזוג...</h2>
         <div className="loading-spinner"></div>
         <p>מנתח קבצים...</p>
-        <div style={{ 
-          background: 'rgba(42, 157, 143, 0.1)', 
-          padding: '15px', 
-          borderRadius: '10px',
-          margin: '20px 0'
-        }}>
-          💡 <strong>טיפ:</strong> לדיוק מירבי, **מומלץ לאחד קבצי אנשי קשר** של החתן, הכלה והמשפחה לקובץ אחד לפני ההעלאה!
-          
-          {showWaitMessage && (
-            <p style={{ marginTop: '10px', fontWeight: 'bold', color: '#2a9d8f' }}>
-              אל דאגה, לא נתקעתי! לפעמים לוקח לי זמן לחשוב ולמצוא התאמות.
+        <div 
+          className="loading-tip-box" // נשתמש ב-class אם קיים ב-CSS
+          style={{ 
+            background: 'rgba(42, 157, 143, 0.1)', 
+            padding: '15px', 
+            borderRadius: '10px',
+            margin: '20px 0',
+            minHeight: '80px', // כדי למנוע קפיצה של התוכן
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center'
+          }}
+        >
+          {/* מציג את ההודעה הרלוונטית לפי מצב הטיימר */}
+          {showWaitMessage ? (
+            <p style={{ fontWeight: 'bold', color: '#2a9d8f', margin: 0 }}>
+              {longWaitMessage}
             </p>
+          ) : (
+            <p style={{ margin: 0 }} dangerouslySetInnerHTML={{ __html: initialTip }} />
           )}
         </div>
       </div>
@@ -858,7 +873,7 @@ const ChatunoTech = () => {
                       selectedContacts={selectedContacts}
                       selectCandidate={selectCandidate}
                       showAddContact={showAddContact}
-                      setShowAddContact={setShowAddAddContact}
+                      setShowAddContact={setShowAddContact} // ✅ תיקון: שונה מ-setShowAddAddContact
                       manualPhone={manualPhone}
                       setManualPhone={setManualPhone}
                       addManualContact={addManualContact}
