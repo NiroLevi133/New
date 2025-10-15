@@ -258,11 +258,7 @@ const GuestCard = ({
 
   return (
     <>
-      {currentGuest.best_score === 100 && (
-        <div className="perfect-match-badge">
-          🎯 התאמה מושלמת 100%!
-        </div>
-      )}
+\
 
       <div className="guest-card">
         <div className="guest-header">
