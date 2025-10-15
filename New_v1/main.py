@@ -190,7 +190,6 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
     """בודק אם עברו 24 שעות ומאפס"""
     try:
         ws = await get_worksheet()
-        # אם אין גיליון עבודה - החזר ברירת מחדל
         if not ws:
             return {"remaining_matches": 30, "is_premium": False, "hours_until_reset": 0}
         
@@ -198,38 +197,48 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
         
         for i, row in enumerate(all_values[1:], 2):
             if len(row) > 2 and row[2] == phone:
+                # 1. חילוץ נתונים
                 last_activity_str = row[4] if len(row) > 4 else ""
-                remaining = int(row[5]) if len(row) > 5 and row[5] and str(row[5]).isdigit() else DAILY_LIMIT
+                # עמודה 5 (F) היא daily_matches_used
+                daily_used = int(row[5]) if len(row) > 5 and row[5] and str(row[5]).isdigit() else 0 
+                remaining = DAILY_LIMIT - daily_used
                 is_premium = str(row[8]).upper() == 'TRUE' if len(row) > 8 else False
                 
                 now = datetime.now()
                 hours_passed = 24
                 
+                # 2. בדיקת זמן איפוס
                 if last_activity_str:
                     try:
-                        # 🔥 שימו לב: הפורמט בגיליון הוא '%d/%m/%y %H:%M'
+                        # 🔥 נסה לקרוא את פורמט התאריך הסטנדרטי שלך
                         last_activity = datetime.strptime(last_activity_str, "%d/%m/%y %H:%M")
                         hours_passed = (now - last_activity).total_seconds() / 3600
-                        
-                        if hours_passed >= 24:
-                            # 🚨 איפוס: אם עברו 24 שעות, עדכן את F{i} ל-30
-                            ws.update(f"F{i}", DAILY_LIMIT)
-                            remaining = DAILY_LIMIT
-                            hours_passed = 24 # כדי לאפס את hours_until_reset ל-0
-                            logger.info(f"♻️ Reset for {phone}")
                     except ValueError:
-                        # אם הפורמט לא תקין, נניח שהגיע הזמן לאיפוס
-                        ws.update(f"F{i}", DAILY_LIMIT)
-                        remaining = DAILY_LIMIT
-                        hours_passed = 24
-                        logger.warning(f"⚠️ Invalid date format for {phone}, force reset.")
+                         # נסה פורמט אחר אם יש בעיה (למקרה של תאריך מלא כמו 2025-10-06T00:50:08.571739)
+                        try:
+                            last_activity = datetime.fromisoformat(last_activity_str)
+                            hours_passed = (now - last_activity).total_seconds() / 3600
+                        except:
+                            hours_passed = 24 # אם יש שגיאת פורמט, נניח שהזמן עבר
+                            logger.warning(f"⚠️ Invalid date format for {phone}, assuming 24h passed.")
                     except Exception:
-                        pass # שגיאות אחרות בבדיקה, המשך עם הנתונים הקיימים
+                        pass
                 
-                # 🔥 תיקון לוגיקה: אם ה-remaining הוא DAILY_LIMIT (או יותר), אז אין זמן איפוס
-                if remaining >= DAILY_LIMIT:
+                # 3. איפוס המונה (Daily Used)
+                if hours_passed >= 24 and daily_used > 0:
+                    # 🚨 איפוס: אם עברו 24 שעות והוא השתמש במונה, אפס אותו.
+                    ws.update(f"F{i}", 0) # מאפסים את המונה ל-0 שימוש
+                    daily_used = 0
+                    remaining = DAILY_LIMIT
+                    hours_passed = 24 # מאפס את הזמן שחלף לצורך חישוב hours_until_reset
+                    logger.info(f"♻️ Daily usage reset for {phone}")
+
+                # 4. חישוב שעות עד איפוס (Hours Until Reset)
+                # 🔥 אם הוא פרימיום או שיש לו 30 התאמות (כי הוא אופס או עדיין לא השתמש), אין זמן איפוס.
+                if is_premium or remaining >= DAILY_LIMIT:
                     hours_until_reset = 0
                 else:
+                    # הוא השתמש (remaining < 30) והזמן עדיין לא עבר:
                     hours_until_reset = max(0.0, 24.0 - hours_passed)
                 
                 return {
