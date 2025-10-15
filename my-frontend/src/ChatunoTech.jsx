@@ -50,9 +50,9 @@ const ChatunoTech = () => {
   // 🔥 Batch tracking
   const [matchesUsedInSession, setMatchesUsedInSession] = useState(0);
   const isProcessingRef = useRef(false);
-  const [skipFilledPhones, setSkipFilledPhones] = useState(false);  // 🔥 חדש - האם לדלג על מוזמנים עם טלפון קיים
-  const [phoneColumnInfo, setPhoneColumnInfo] = useState(null);  // 🔥 חדש - פרטי עמודת הטלפון
-  const [showPhoneColumnDialog, setShowPhoneColumnDialog] = useState(false);  // 🔥 חדש - פופאפ לשאלה
+  const [skipFilledPhones, setSkipFilledPhones] = useState(false);
+  const [phoneColumnInfo, setPhoneColumnInfo] = useState(null);
+  const [showPhoneColumnDialog, setShowPhoneColumnDialog] = useState(false);
 
   // Check mobile support
   useEffect(() => {
@@ -727,6 +727,43 @@ const ChatunoTech = () => {
     });
     return Array.from(values);
   };
+  
+  // 🔥 רכיב חדש לטיפול בטיימר של מסך הטעינה
+  const LoadingScreenWithTimer = () => {
+    const [showWaitMessage, setShowWaitMessage] = useState(false);
+
+    useEffect(() => {
+      // טיימר ל-10 שניות
+      const timer = setTimeout(() => {
+        setShowWaitMessage(true);
+      }, 10000);
+
+      // ניקוי הטיימר כאשר הרכיב נעלם (כשהטעינה מסתיימת)
+      return () => clearTimeout(timer);
+    }, []);
+
+    return (
+      <div style={{ textAlign: 'center' }}>
+        <h2>⏳ מבצע מיזוג...</h2>
+        <div className="loading-spinner"></div>
+        <p>מנתח קבצים...</p>
+        <div style={{ 
+          background: 'rgba(42, 157, 143, 0.1)', 
+          padding: '15px', 
+          borderRadius: '10px',
+          margin: '20px 0'
+        }}>
+          💡 <strong>טיפ:</strong> לדיוק מירבי, **מומלץ לאחד קבצי אנשי קשר** של החתן, הכלה והמשפחה לקובץ אחד לפני ההעלאה!
+          
+          {showWaitMessage && (
+            <p style={{ marginTop: '10px', fontWeight: 'bold', color: '#2a9d8f' }}>
+              אל דאגה, לא נתקעתי! לפעמים לוקח לי זמן לחשוב ולמצוא התאמות.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   // RENDER
   return (
@@ -771,21 +808,9 @@ const ChatunoTech = () => {
           />
         )}
 
-        {/* Loading Screen */}
+        {/* Loading Screen - משתמש ברכיב החדש */}
         {currentScreen === 'loadingScreen' && (
-          <div style={{ textAlign: 'center' }}>
-            <h2>⏳ מבצע מיזוג...</h2>
-            <div className="loading-spinner"></div>
-            <p>מנתח קבצים...</p>
-            <div style={{ 
-              background: 'rgba(42, 157, 143, 0.1)', 
-              padding: '15px', 
-              borderRadius: '10px',
-              margin: '20px 0'
-            }}>
-              💡 <strong>טיפ:</strong> המערכת ממיינת - קודם 100%, אחר כך 93%+
-            </div>
-          </div>
+          <LoadingScreenWithTimer />
         )}
 
         {/* Limit Reached Screen */}
@@ -833,7 +858,7 @@ const ChatunoTech = () => {
                       selectedContacts={selectedContacts}
                       selectCandidate={selectCandidate}
                       showAddContact={showAddContact}
-                      setShowAddContact={setShowAddContact}
+                      setShowAddContact={setShowAddAddContact}
                       manualPhone={manualPhone}
                       setManualPhone={setManualPhone}
                       addManualContact={addManualContact}
