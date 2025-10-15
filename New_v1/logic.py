@@ -580,22 +580,79 @@ def validate_dataframes(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> t
         return False, "שגיאת עיבוד"
     return True, "OK"
 
-# 🔥 ייצוא חכם - שומר מבנה מקורי
-def export_with_original_structure(original_file, selected_contacts: dict) -> BytesIO:
+# 🔥 בדיקה אם יש עמודת טלפון קיימת
+def check_existing_phone_column(file) -> dict:
     """
-    🔥 ייצוא חכם:
-    - אם יש עמודת טלפון קיימת → ממלא אותה
-    - אם אין → מוסיף עמודה חדשה בסוף
-    - שומר את כל העמודות המקוריות
+    🔥 בודק אם יש עמודת טלפון בקובץ
+    מחזיר: {
+        'has_phone_column': bool,
+        'phone_column_name': str or None,
+        'filled_count': int,
+        'empty_count': int
+    }
     """
     try:
-        # קרא את הקובץ המקורי
+        if hasattr(file, "filename") and str(file.filename).lower().endswith(".csv"):
+            df = pd.read_csv(file, encoding='utf-8')
+        else:
+            df = pd.read_excel(file)
+        
+        df.columns = [str(col).strip() for col in df.columns]
+        
+        column_mapping = smart_column_mapping(df)
+        phone_cols = [col for col, type_val in column_mapping.items() if type_val == 'phone']
+        
+        if phone_cols:
+            phone_col = phone_cols[0]
+            phone_data = df[phone_col].fillna('').astype(str)
+            filled = (phone_data.str.strip() != '').sum()
+            empty = len(phone_data) - filled
+            
+            return {
+                'has_phone_column': True,
+                'phone_column_name': phone_col,
+                'filled_count': int(filled),
+                'empty_count': int(empty),
+                'total_rows': len(df)
+            }
+        else:
+            return {
+                'has_phone_column': False,
+                'phone_column_name': None,
+                'filled_count': 0,
+                'empty_count': len(df),
+                'total_rows': len(df)
+            }
+            
+    except Exception as e:
+        print(f"❌ Check phone column error: {e}")
+        return {
+            'has_phone_column': False,
+            'phone_column_name': None,
+            'filled_count': 0,
+            'empty_count': 0,
+            'total_rows': 0
+        }
+
+# 🔥 ייצוא חכם - כל הקובץ המקורי
+def export_with_original_structure(original_file, selected_contacts: dict, skip_filled: bool = False) -> BytesIO:
+    """
+    🔥 ייצוא חכם:
+    - מוריד את **כל הקובץ המקורי** (לא רק מה שעובד)
+    - אם יש עמודת טלפון קיימת → ממלא אותה
+    - אם אין → מוסיף עמודה חדשה בסוף
+    - skip_filled: אם True, לא ממלא שורות שיש להן כבר מספר
+    """
+    try:
+        # קרא את כל הקובץ המקורי
         if hasattr(original_file, "filename") and str(original_file.filename).lower().endswith(".csv"):
             df = pd.read_csv(original_file, encoding='utf-8')
         else:
             df = pd.read_excel(original_file)
         
         df.columns = [str(col).strip() for col in df.columns]
+        
+        print(f"📊 Original file has {len(df)} rows")
         
         # זהה עמודת שם
         name_series = _resolve_full_name_series(df)
@@ -614,14 +671,32 @@ def export_with_original_structure(original_file, selected_contacts: dict) -> By
             df[phone_col_name] = ""
             print(f"➕ Created new phone column: {phone_col_name}")
         
-        # מלא את עמודת הטלפון
+        # 🔥 מלא את עמודת הטלפון לכל השורות
+        filled_count = 0
+        skipped_count = 0
+        
         for idx, guest_name in enumerate(name_series):
+            # בדוק אם יש כבר מספר בשורה הזו
+            current_phone = str(df.at[idx, phone_col_name]).strip()
+            has_existing_phone = current_phone and current_phone != '' and current_phone.lower() != 'nan'
+            
+            # אם skip_filled=True ויש מספר - דלג
+            if skip_filled and has_existing_phone:
+                skipped_count += 1
+                continue
+            
+            # אם יש התאמה - מלא
             if guest_name in selected_contacts:
                 contact = selected_contacts[guest_name]
                 if not contact.get('isNotFound'):
                     phone = contact.get('phone', '')
                     if phone:
                         df.at[idx, phone_col_name] = phone
+                        filled_count += 1
+        
+        print(f"✅ Filled {filled_count} phones")
+        if skip_filled:
+            print(f"⏭️ Skipped {skipped_count} rows (already had phone)")
         
         # ייצא לאקסל
         buf = BytesIO()
@@ -629,7 +704,7 @@ def export_with_original_structure(original_file, selected_contacts: dict) -> By
             df.to_excel(w, index=False, sheet_name="תוצאות")
         buf.seek(0)
         
-        print(f"✅ Exported {len(df)} rows")
+        print(f"📥 Exported all {len(df)} rows from original file")
         return buf
         
     except Exception as e:

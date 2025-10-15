@@ -61,7 +61,8 @@ try:
         process_matching_results,
         validate_dataframes,
         to_buf,
-        export_with_original_structure,  # 🔥 חדש
+        export_with_original_structure,
+        check_existing_phone_column,  # 🔥 חדש
         create_contacts_template,
         create_guests_template,
         NAME_COL,
