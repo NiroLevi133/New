@@ -15,16 +15,16 @@ const AuthScreen = ({
 }) => {
   return (
     <div className="auth-screen" style={{ textAlign: 'center' }}>
-      <h2>🔐 אימות משתמש</h2>
-      <p>הזן את הפרטים שלך כדי להתחיל</p>
+      <h2>🔐 אימות המשתמש</h2>
+      <p style={{ color: '#555', marginBottom: '25px' }}>הזן את פרטיך האישיים כדי להתחיל בחיבור המערכת.</p>
 
       {!showCodeInput && (
         <div className="auth-fields-visible">
           <div>
-            <label>שם מלא</label>
+            <label style={{ display: 'block', textAlign: 'right', fontWeight: 'bold' }}>שם מלא</label>
             <input
               type="text"
-              placeholder="הזן שם מלא"
+              placeholder="יוסי כהן"
               value={fullNameValue}
               onChange={(e) => setFullNameValue(e.target.value)}
               disabled={isLoading}
@@ -32,7 +32,7 @@ const AuthScreen = ({
           </div>
 
           <div>
-            <label>מספר טלפון</label>
+            <label style={{ display: 'block', textAlign: 'right', fontWeight: 'bold', marginTop: '15px' }}>מספר טלפון</label>
             <input
               type="tel"
               placeholder="05X-XXXXXXX"
@@ -47,35 +47,38 @@ const AuthScreen = ({
           <button
             className="btn btn-primary"
             onClick={sendCode}
-            disabled={isLoading}
+            disabled={isLoading || !phoneValue || !fullNameValue}
             type="button"
             style={{
               display: 'block',
-              margin: '25px auto',
+              margin: '30px auto 0 auto',
               minWidth: '220px',
               fontSize: '1.1rem',
             }}
           >
-            {isLoading ? '⏳ שולח...' : '📱 שלח קוד אימות'}
+            {isLoading ? '⏳ שולח...' : '📱 שלח קוד אימות בוואטסאפ'}
           </button>
         </div>
       )}
 
       {showCodeInput && (
         <div className="auth-fields-visible">
+          <p style={{ fontWeight: 'bold', color: 'var(--primary-teal)' }}>
+            ✅ קוד נשלח ל-{phoneValue}. אנא בדוק ב-WhatsApp.
+          </p>
           <div>
-            <label>קוד אימות מווטסאפ</label>
+            <label style={{ display: 'block', textAlign: 'right', fontWeight: 'bold' }}>קוד אימות (4 ספרות)</label>
             <input
               type="text"
-              placeholder="הזן קוד בן 4 ספרות"
+              placeholder="****"
               value={codeValue}
               onChange={(e) => setCodeValue(e.target.value)}
               disabled={isLoading}
               maxLength={4}
               style={{
                 textAlign: 'center',
-                fontSize: '1.5rem',
-                letterSpacing: '0.5rem',
+                fontSize: '1.8rem',
+                letterSpacing: '0.8rem',
                 marginBottom: '15px',
               }}
             />
@@ -86,7 +89,7 @@ const AuthScreen = ({
           <button
             className="btn btn-primary"
             onClick={verifyCode}
-            disabled={isLoading}
+            disabled={isLoading || codeValue.length !== 4}
             type="button"
             style={{
               display: 'block',
@@ -95,15 +98,15 @@ const AuthScreen = ({
               fontSize: '1.1rem',
             }}
           >
-            {isLoading ? '⏳ בודק...' : '✅ אמת קוד'}
+            {isLoading ? '⏳ בודק...' : '✅ אמת קוד וכניסה'}
           </button>
 
           <div
             style={{
               display: 'flex',
               justifyContent: 'center',
-              gap: '10px',
-              marginTop: '10px',
+              gap: '15px',
+              marginTop: '15px',
             }}
           >
             <button
@@ -121,7 +124,7 @@ const AuthScreen = ({
               disabled={isLoading}
               type="button"
             >
-              ⬅️ חזור
+              ⬅️ חזור לפרטים
             </button>
           </div>
         </div>
@@ -133,38 +136,24 @@ const AuthScreen = ({
 const LandingPage = ({ onStart }) => {
   return (
     <div style={{ textAlign: 'center' }}>
-      {/* כותרת מעודכנת */}
-      <h2>💍 מערכת התאמת אנשי קשר אוטומטית למוזמנים שלך!</h2>
-      <p>
-        כבר לא צריך לשבור את הראש! מעלים את רשימת המוזמנים מהאקסל ואת אנשי הקשר שלך, 
-        והמערכת שלנו מתאימה אוטומטית את המספרים החסרים.
+      <h2 style={{ marginBottom: '15px' }}>💍 התאמת אנשי קשר אוטומטית למוזמנים שלך!</h2>
+      <p style={{ color: '#555', fontSize: '1.05rem', marginBottom: '30px' }}>
+        מעלים את רשימת המוזמנים והמערכת שלנו מתאימה אוטומטית את מספרי הטלפון החסרים, 
+        ומוכנה לשליחת אישורי הגעה תוך דקות.
       </p>
 
-      <div style={{
-        background: 'linear-gradient(135deg, rgba(42, 157, 143, 0.1), rgba(244, 162, 97, 0.1))',
-        padding: '20px',
-        borderRadius: '15px',
-        margin: '20px 0',
-        textAlign: 'right'
-      }}>
-        <h3 style={{ textAlign: 'center' }}>✨ מה המערכת עושה עבורך?</h3>
+      <div className="landing-benefits-box">
+        <h3 style={{ textAlign: 'center' }}>🚀 היתרונות של המערכת:</h3>
         <ul style={{ listStyle: 'none', padding: 0, lineHeight: '1.8' }}>
-          {/* שינוי ההדגשה לחיסכון בזמן */}
-          <li>⏱️ <strong>חיסכון בזמן מטורף:</strong> המערכת מכניסה את מספרי הפלאפון לאקסל במקומך! אתה לא צריך לחפש ולהתאים מספר-מספר לכל מוזמן.</li>
-          <li>🎯 <strong>100% דיוק:</strong> התאמה מושלמת – נמצא מיד!</li>
-          <li>💾 <strong>הוספה ישירה:</strong> מוסיפה את המספרים הנכונים ישירות לרשימת מוזמנים המקורית שלכם.</li>
-          <li>📩 <strong>ייצוא מיידי:</strong> תוך דקות תקבל קובץ מוכן לשליחת אישורי הגעה.</li>
-          {/* הוספת היתרון של 30 התאמות חינם */}
+          <li>⏱️ <strong>חיסכון דרמטי בזמן:</strong> לא צריך לחפש ולהתאים מספר-מספר. המערכת עושה זאת במקומך.</li>
+          <li>🎯 <strong>דיוק מוכח:</strong> שימוש באלגוריתם מתקדם לאיתור התאמות מושלמות ומומלצות (93%+).</li>
+          <li>💾 <strong>שמירה על מבנה הקובץ:</strong> ייצוא הקובץ המעודכן תוך שמירה על כל הנתונים המקוריים.</li>
           <li>💰 <strong>30 התאמות חינם</strong> כל 24 שעות.</li>
         </ul>
       </div>
 
-      <p style={{ fontWeight: 'bold', fontSize: '1.1em' }}>
-        תוכנת האוטומציה שתשחרר אותך מהטבלאות ותעביר אותך לשליחת אישורים.
-      </p>
-
-      <button className="btn btn-primary" onClick={onStart}>
-        🚀 בואו נתחיל!
+      <button className="btn btn-primary" onClick={onStart} style={{ fontSize: '1.3rem', padding: '18px 40px' }}>
+        🚀 התחל עכשיו!
       </button>
     </div>
   );
@@ -176,40 +165,57 @@ const LimitReachedScreen = ({
   onExport,
   onUpgrade 
 }) => {
+  // פונקציה מקומית קצרה להצגת שעות (לשם הדגמה)
+  const formatTime = (hours) => {
+    if (hours <= 0) return "ההגבלה אופסה!";
+    const totalMinutes = Math.floor(hours * 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    if (h > 0) return `${h} שעות ו-${m} דקות`;
+    return `${m} דקות`;
+  };
+
   return (
     <div style={{ textAlign: 'center' }}>
       <h2>⏰ נגמרו ההתאמות היומיות</h2>
       
-      <div style={{ fontSize: '3rem', margin: '20px 0' }}>🎉</div>
+      <div style={{ fontSize: '3rem', margin: '20px 0' }}>🥺</div>
       
-      <div className="stats-box">
-        <div>✅ עיבדת היום: <strong>30</strong> מוזמנים</div>
-        <div>📊 סה״כ התאמות: <strong>{selectedContactsCount}</strong></div>
+      <div style={{
+          background: 'var(--light-gray)',
+          padding: '20px',
+          borderRadius: '10px',
+          marginBottom: '30px',
+          fontSize: '1.1rem'
+      }}>
+        <div style={{ marginBottom: '10px' }}>📊 סה״כ התאמות שאומתו: <strong>{selectedContactsCount}</strong></div>
+        <div>⏱️ נותרו <strong>0</strong> התאמות מתוך 30.</div>
       </div>
       
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '30px' }}>
-        <div className="option-card">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+        {/* אופציה 1: חזור מחר */}
+        <div style={{ padding: '20px', border: '1px solid #ccc', borderRadius: '15px' }}>
           <h3>⏳ חזור מחר (חינם)</h3>
-          <p>המגבלה תתאפס בעוד:</p>
-          <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
-            {currentUser.hoursUntilReset > 0 
-              ? `${Math.floor(currentUser.hoursUntilReset)} שעות` 
-              : '24 שעות'}
+          <p style={{ color: '#555' }}>המגבלה תתאפס בעוד:</p>
+          <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--primary-teal)' }}>
+            {formatTime(currentUser.hoursUntilReset)}
           </div>
-          <button className="btn btn-secondary" onClick={onExport}>
-            📥 הורד את מה שיש כרגע
+          <button className="btn btn-secondary" onClick={onExport} style={{ marginTop: '15px' }}>
+            📥 הורד את מה שאושר עד כה
           </button>
         </div>
         
-        <div className="option-card premium">
-          <div className="badge">💎 מומלץ</div>
-          <h3>המשך עכשיו (39₪)</h3>
-          <ul style={{ textAlign: 'right', listStyle: 'none' }}>
+        {/* אופציה 2: שדרוג */}
+        <div style={{ padding: '20px', border: '2px solid var(--primary-teal)', borderRadius: '15px', background: '#e6f9f7' }}>
+          <div style={{ color: 'var(--primary-teal)', fontWeight: 'bold', marginBottom: '10px' }}>
+            ⭐ מומלץ! פרימיום ⭐
+          </div>
+          <h3 style={{ color: 'var(--primary-teal)' }}>המשך עכשיו (39₪)</h3>
+          <ul style={{ textAlign: 'right', listStyle: 'none', padding: 0, margin: '10px 0' }}>
             <li>✅ ללא הגבלת התאמות</li>
-            <li>✅ תמיכה מהירה</li>
-            <li>✅ גישה לכל התכונות</li>
+            <li>✅ גישה מלאה ל-24 שעות</li>
           </ul>
-          <button className="btn btn-primary" onClick={onUpgrade}>
+          <button className="btn btn-primary" onClick={onUpgrade} style={{ marginTop: '10px' }}>
             💳 שדרג לפרימיום
           </button>
         </div>
@@ -221,67 +227,45 @@ const LimitReachedScreen = ({
 const ContactsGuideModal = ({ onClose }) => {
   return (
     <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      background: 'rgba(0,0,0,0.7)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 9999,
-      padding: '20px'
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', zIndex: 9999, padding: '20px'
     }}>
       <div style={{
-        background: 'white',
-        borderRadius: '20px',
-        padding: '30px',
-        maxWidth: '600px',
-        maxHeight: '80vh',
-        overflowY: 'auto',
+        background: 'white', borderRadius: '20px', padding: '30px',
+        maxWidth: '550px', maxHeight: '80vh', overflowY: 'auto',
         textAlign: 'right'
       }}>
-        <h3 style={{ textAlign: 'center' }}>📖 מדריך הורדת אנשי קשר מ־WhatsApp</h3>
+        <h3 style={{ textAlign: 'center', fontSize: '1.4rem' }}>📖 איך להוריד אנשי קשר מ־WhatsApp?</h3>
 
         <div style={{ marginTop: '25px', lineHeight: '1.8' }}>
-          <ol style={{ listStyle: 'decimal', paddingRight: '20px' }}>
-            <li>פתח דפדפן <strong>במחשב</strong> (לא בטלפון).</li>
+          <ol style={{ listStyle: 'decimal', paddingRight: '20px', fontSize: '1.05rem' }}>
+            <li>פתח דפדפן **במחשב** (Chrome/Edge).</li>
             <li>
-              התקן את התוסף 
-              <strong>
+              התקן את התוסף: 
+              **
                 <a 
                   href="https://chromewebstore.google.com/detail/joni/aakppiadmnaeffmjijolmgmkcfhpglbh"
                   target="_blank" 
                   rel="noopener noreferrer"
+                  style={{ color: 'var(--primary-teal)', fontWeight: 'bold' }}
                 > ג׳וני (Joni)</a>
-              </strong> 
-              בדפדפן Chrome.
-            </li>
+              ** </li>
             <li>
               היכנס אל 
-              <strong>
+              **
                 <a 
                   href="https://web.whatsapp.com"
                   target="_blank" 
                   rel="noopener noreferrer"
+                  style={{ color: 'var(--primary-teal)', fontWeight: 'bold' }}
                 > WhatsApp Web</a>
-              </strong>.
+              ** (במחשב).
             </li>
-            <li>לחץ על סמל <strong>J</strong> שמופיע בסרגל הכלים של הדפדפן.</li>
-            <li>בחר <strong>אנשי קשר</strong> → <strong>שמירה לקובץ Excel</strong>.</li>
-            <li>הקובץ יורד אוטומטית למחשב שלך 📂</li>
+            <li>לחץ על סמל **J** שמופיע בסרגל הכלים של הדפדפן.</li>
+            <li>בחר **אנשי קשר** → **שמירה לקובץ Excel**.</li>
+            <li>הקובץ יורד אוטומטית למחשב שלך 📂.</li>
           </ol>
-        </div>
-
-        <div style={{
-          background: '#f1f8ff',
-          borderRadius: '10px',
-          padding: '10px 15px',
-          marginTop: '15px',
-          fontSize: '0.95rem'
-        }}>
-          💡 <strong>חשוב:</strong> התוסף עובד רק בדפדפן <strong>Chrome</strong> במחשב.
         </div>
 
         <button 
@@ -289,7 +273,7 @@ const ContactsGuideModal = ({ onClose }) => {
           onClick={onClose}
           style={{ marginTop: '25px', width: '100%' }}
         >
-          ✅ הבנתי
+          ✅ הבנתי, בוא נמשיך
         </button>
       </div>
     </div>
