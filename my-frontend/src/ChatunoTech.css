@@ -140,6 +140,11 @@ input:focus {
     color: var(--danger-red); 
     border: 1px solid var(--danger-red);
 }
+.status-info { 
+    background-color: rgba(244, 162, 97, 0.1);
+    color: var(--warning-yellow);
+    border: 1px solid var(--warning-yellow);
+}
 
 /* ============================================================
    HEADER & LIMIT (סטטוס)
@@ -239,6 +244,12 @@ input:focus {
 }
 
 /* מועמדים - רשימה מינימליסטית */
+.candidates-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
 .candidate-option {
   display: flex;
   justify-content: space-between;

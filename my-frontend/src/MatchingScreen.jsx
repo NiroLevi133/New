@@ -339,7 +339,7 @@ const GuestCard = ({
       </div>
 
       
-      {/* 5. כפתורי ניווט - מחוברים בתחתית */}
+      {/* 5. כפתורי ניווט - מחוברים בתחתית (הכפתורים היחידים שנשארו) */}
       <div className="navigation-buttons">
           <button 
             className="btn btn-secondary"
@@ -424,7 +424,6 @@ const SuccessScreen = ({
 // ============================================================
 // 5. Exports
 // ============================================================
-// הסרת MatchingSidebar והחלפתו בפונקציה ריקה לצורך תאימות ב-ChatunoTech.jsx
 const MatchingSidebar = () => null;
 
 export { 
