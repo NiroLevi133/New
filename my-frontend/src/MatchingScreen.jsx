@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 // ============================================================
 // Display Limit Component 
 // ============================================================
-const LimitDisplay = ({ currentUser, DAILY_LIMIT, onUpgradeClick }) => {
+export const LimitDisplay = ({ currentUser, DAILY_LIMIT, onUpgradeClick }) => {
   if (currentUser.isPro) {
     return (
       <div className="limit-badge pro">
@@ -59,7 +59,7 @@ const LimitDisplay = ({ currentUser, DAILY_LIMIT, onUpgradeClick }) => {
 };
 
 // ============================================================
-// 🔥 RESTORED: Upload Screen Component
+// Upload Screen Component
 // ============================================================
 export const UploadScreen = ({
     currentUser,
@@ -255,7 +255,7 @@ export const MatchingSidebar = ({
 };
 
 // ============================================================
-// 🔥 CORE LOGIC: Helper to extract Smart Details (פתרון לשמות עמודות משתנים)
+// CORE LOGIC: Helper to extract Smart Details (פתרון לשמות עמודות משתנים)
 // ============================================================
 const getSmartDetails = (details) => {
     // מפת שדות חכמה - מחפשת את אחד מהשמות ברשימה
@@ -271,17 +271,15 @@ const getSmartDetails = (details) => {
     const smartDetails = [];
 
     for (const field of fieldMap) {
-        // перебираем все возможные ключи в нижнем регистре
         const lowerCaseKeys = field.keys.map(k => k.toLowerCase().trim());
         
         for (const [key, value] of Object.entries(details || {})) {
             const normalizedKey = key.toLowerCase().trim();
             const normalizedValue = value ? value.toString().trim() : '';
 
-            // בדיקה אם המפתח המנורמל קיים ברשימת המפתחות של השדה
             if (lowerCaseKeys.includes(normalizedKey) && normalizedValue && normalizedValue !== 'nan') {
                 smartDetails.push({ label: field.label, value: normalizedValue });
-                break; // נמצא ערך, עוברים לשדה החכם הבא
+                break;
             }
         }
     }
@@ -331,8 +329,7 @@ export const GuestCard = ({
     
     // רכיב לרינדור מועמד
     const CandidateOption = ({ candidate, isSelected, onSelect }) => {
-        // נניח ש-AUTO_SELECT_TH מגיע כ-93
-        const isAutoSelected = candidate.score >= 93;
+        const isAutoSelected = candidate.score >= AUTO_SELECT_TH;
 
         return (
             <div 
@@ -513,7 +510,7 @@ export const GuestCard = ({
 };
 
 // ============================================================
-// 🔥 RESTORED: Success Screen Component
+// Success Screen Component
 // ============================================================
 export const SuccessScreen = ({ 
     currentGuestIndex, 
