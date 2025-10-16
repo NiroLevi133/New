@@ -202,11 +202,6 @@ const GuestCard = ({
           ))}
         </div>
 
-        {currentGuest.best_score === 100 && (
-            <div className="perfect-match-badge">
-                🎯 התאמה מושלמת (100%) - מאושר אוטומטית!
-            </div>
-        )}
         
         <h3 style={{ textAlign: 'center', marginBottom: '15px' }}>
           {currentGuest.best_score >= 93 && currentGuest.best_score < 100 ? '✅ המלצת המערכת (93%+)' : '📋 בחר איש קשר מתאים:'}
