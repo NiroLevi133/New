@@ -58,12 +58,122 @@ const LimitDisplay = ({ currentUser, DAILY_LIMIT, onUpgradeClick }) => {
   );
 };
 
+// ============================================================
+// 🔥 RESTORED: Upload Screen Component
+// ============================================================
+export const UploadScreen = ({
+    currentUser,
+    DAILY_LIMIT,
+    uploadedFiles,
+    handleFileUpload,
+    supportsMobileContacts,
+    requestMobileContacts,
+    isLoading,
+    startMerge,
+    setShowContactsGuide,
+    API_BASE_URL
+  }) => {
+    return (
+      <div>
+        <h2>📁 העלה את הקבצים שלך</h2>
+        
+        <LimitDisplay currentUser={currentUser} DAILY_LIMIT={DAILY_LIMIT} />
+        
+        <div style={{ marginBottom: '30px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <label>📞 אנשי קשר</label>
+            <button 
+              className="btn btn-guide" 
+              onClick={() => setShowContactsGuide(true)}
+              type="button"
+              style={{ padding: '8px 16px', fontSize: '0.8rem' }}
+            >
+              📋 איך להוציא אנשי קשר?
+            </button>
+          </div>
+  
+          {supportsMobileContacts && (
+            <div style={{ marginBottom: '15px' }}>
+              <button 
+                className="btn btn-contacts btn-small"
+                onClick={requestMobileContacts}
+                disabled={isLoading}
+                style={{ width: '100%' }}
+              >
+                📱 גישה לאנשי קשר בטלפון
+              </button>
+            </div>
+          )}
+  
+          <div style={{ textAlign: 'center', margin: '10px 0', color: '#666' }}>
+            {supportsMobileContacts ? 'או' : ''}
+          </div>
+  
+          <input 
+            type="file" 
+            accept=".csv,.xlsx,.xls"
+            onChange={(e) => handleFileUpload(e, 'contacts')}
+            style={{ marginBottom: '10px' }}
+            disabled={isLoading}
+          />
+          {uploadedFiles.contacts && (
+            <div className="status-message status-success">
+              ✅ קובץ אנשי קשר נטען
+            </div>
+          )}
+        </div>
+  
+        <div style={{ marginBottom: '30px' }}>
+          <label>👰 קובץ מוזמנים (CSV/Excel)</label>
+          <input 
+            type="file" 
+            accept=".csv,.xlsx,.xls" 
+            onChange={(e) => handleFileUpload(e, 'guests')}
+            style={{ marginBottom: '10px' }}
+            disabled={isLoading}
+          />
+          {uploadedFiles.guests && (
+            <div className="status-message status-success">
+              ✅ קובץ מוזמנים נטען
+            </div>
+          )}
+        </div>
+  
+        <button 
+          className="btn btn-primary" 
+          onClick={startMerge}
+          disabled={!uploadedFiles.guests || !uploadedFiles.contacts || isLoading}
+          style={{ width: '100%' }}
+        >
+          {isLoading ? '⏳ טוען...' : '🚀 התחל מיזוג'}
+        </button>
+        
+        <div style={{ marginTop: '20px', textAlign: 'center' }}>
+          <p>💡 צריך עזרה? הורד קבצי דוגמה:</p>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button 
+              className="btn btn-secondary" 
+              onClick={() => window.open(`${API_BASE_URL}/download-guests-template`, '_blank')}
+              style={{ padding: '10px 20px' }}
+            >
+              📥 דוגמה - מוזמנים
+            </button>
+            <button 
+              className="btn btn-secondary" 
+              onClick={() => window.open(`${API_BASE_URL}/download-contacts-template`, '_blank')}
+              style={{ padding: '10px 20px' }}
+            >
+              📥 דוגמה - אנשי קשר
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
 // ============================================================
 // Sidebar Component
 // ============================================================
-// ההטמעה של ה-Sidebar היא עדיין סטאטית מכיוון שאין לי גישה ל-getUniqueValues ו-currentGuestIndex
-// כשהקובץ הזה מוטמע ב-ChatunoTech.jsx הוא אמור לעבוד כרגיל
 export const MatchingSidebar = ({ 
   currentUser, DAILY_LIMIT, exportResults, isLoading, currentGuestIndex,
   filters, setFilters, getUniqueValues, onUpgradeClick
@@ -144,7 +254,6 @@ export const MatchingSidebar = ({
     );
 };
 
-
 // ============================================================
 // 🔥 CORE LOGIC: Helper to extract Smart Details (פתרון לשמות עמודות משתנים)
 // ============================================================
@@ -205,7 +314,7 @@ export const GuestCard = ({
 }) => {
     const selectedContact = selectedContacts[currentGuest.guest];
     
-    // 🔥 שימוש בלוגיקה החכמה
+    // 🔥 NEW: Extract smart details for display
     const smartDetails = getSmartDetails(currentGuest.guest_details || {});
 
     // פונקציית בחירת "לא נמצא"
@@ -222,14 +331,13 @@ export const GuestCard = ({
     
     // רכיב לרינדור מועמד
     const CandidateOption = ({ candidate, isSelected, onSelect }) => {
-        const isAutoSelected = candidate.score >= AUTO_SELECT_TH;
+        // נניח ש-AUTO_SELECT_TH מגיע כ-93
+        const isAutoSelected = candidate.score >= 93;
 
         return (
-            // 🔥 שימוש ב-isAutoSelected כדי לשמור על הבולטות הירוקה
             <div 
-                className={`candidate-option ${isSelected ? 'selected' : ''}`}
+                className={`candidate-option ${isSelected ? 'selected' : ''} ${isAutoSelected && isSelected ? 'auto-selected' : ''}`}
                 onClick={onSelect}
-                style={isAutoSelected ? { borderColor: '#28a745' } : {}} // אופציונלי: עוד הדגשה
             >
                 <div className="radio-label">
                     <div className="contact-name">
@@ -301,8 +409,27 @@ export const GuestCard = ({
             
             <h3>בחר איש קשר מתאים:</h3>
             
+            {/* Display current selection status */}
+            <div className="selection-status-box">
+                {selectedContact ? (
+                    selectedContact.isNotFound ? (
+                        <span className="status-selected-none">
+                            🚫 נבחר: השאר ללא מספר
+                        </span>
+                    ) : (
+                        <span className="status-selected">
+                            ✅ נבחר: <strong>{selectedContact.name}</strong> ({selectedContact.phone})
+                        </span>
+                    )
+                ) : (
+                    <span className="status-none">
+                        ⚠️ אנא בחר איש קשר מתאים
+                    </span>
+                )}
+            </div>
+
             <div className="candidates-list">
-                {/* Candidates */}
+                {/* Candidates (Regular Options) */}
                 {(currentGuest.candidates || []).map((candidate, index) => (
                     <CandidateOption
                         key={index}
@@ -381,171 +508,75 @@ export const GuestCard = ({
                     </button>
                 </div>
             )}
-
-            {/* כפתורי ניווט */}
-            <div className="navigation-buttons">
-                {currentGuestIndex > 0 && (
-                    <button className="btn btn-secondary" onClick={() => {/* handlePreviousGuest */}}>
-                        ⬅️ המוזמן הקודם
-                    </button>
-                )}
-                <button 
-                    className="btn btn-primary" 
-                    onClick={() => {/* handleNextGuest */}}
-                    disabled={!isSelected}
-                >
-                    {currentGuestIndex === totalGuests - 1 ? '🎉 סיים' : '➡️ המוזמן הבא'}
-                </button>
-            </div>
         </div>
     );
 };
 
 // ============================================================
-// Main Matching Screen (The host component)
+// 🔥 RESTORED: Success Screen Component
 // ============================================================
-export const MatchingScreen = ({ 
-    matchingResults, currentGuestIndex, selectedContacts, selectCandidate, nextGuest, prevGuest,
-    totalGuests, isLoading, showMessage, mobileContacts, onUpgradeClick, exportResults, currentUser,
-    filters, setFilters, getUniqueValues, AUTO_SELECT_TH
-}) => {
-    // Local state for Manual/Search
-    const [showAddContact, setShowAddContact] = useState(false);
-    const [manualPhone, setManualPhone] = useState('');
-    const [searchInContacts, setSearchInContacts] = useState('');
-    const [searchSuggestions, setSearchSuggestions] = useState([]);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-
-    // Apply filters logic (assuming this is done in the main ChatunoTech.jsx)
-    const filteredResults = matchingResults.filter(guest => {
-        const details = getSmartDetails(guest.guest_details);
-        let match = true;
-        
-        if (filters.צד && details.find(d => d.label === 'צד')?.value !== filters.צד) {
-            match = false;
-        }
-        if (filters.קבוצה && details.find(d => d.label === 'קבוצה')?.value !== filters.קבוצה) {
-            match = false;
-        }
-        
-        return match;
-    });
-
-    const currentGuest = filteredResults[currentGuestIndex];
-    if (!currentGuest) return null; // Should not happen in normal flow
-
-    // Handler to search in all mobile contacts
-    const handleSearchInput = (term) => {
-        if (!term.trim()) {
-            setSearchSuggestions([]);
-            return;
-        }
-        const normalizedTerm = term.toLowerCase().trim();
-        const results = mobileContacts.filter(contact => 
-            contact.name.toLowerCase().includes(normalizedTerm) || 
-            contact.phone.includes(normalizedTerm)
-        ).map(contact => ({
-            name: contact.name,
-            phone: contact.phone,
-            score: 50, // Score is arbitrary for search results
-            reason: 'חיפוש ידני'
-        }));
-        setSearchSuggestions(results);
-    };
-
-    // Handler to select from search suggestions
-    const selectFromSuggestion = (contact) => {
-        selectCandidate(contact);
-        setSearchInContacts('');
-        setSearchSuggestions([]);
-        setShowSuggestions(false);
-    };
-
-    // Handler to add a manual contact
-    const addManualContact = () => {
-        if (manualPhone.length < 9) {
-            showMessage('מספר הטלפון אינו תקין', 'error');
-            return;
-        }
-        const newContact = {
-            name: `(הוספה ידנית) ${currentGuest.guest}`,
-            phone: manualPhone,
-            score: 100,
-            reason: 'הוספה ידנית',
-            isManual: true
-        };
-        selectCandidate(newContact);
-        setManualPhone('');
-        setShowAddContact(false);
-        showMessage(`✅ המספר ${manualPhone} נבחר ל-${currentGuest.guest}`, 'success');
-    };
-
-    // Handler for previous guest
-    const handlePreviousGuest = () => {
-        prevGuest();
-        setShowAddContact(false);
-        setManualPhone('');
-        setSearchInContacts('');
-        setSearchSuggestions([]);
-    };
-
-    // Handler for next guest
-    const handleNextGuest = () => {
-        nextGuest();
-        setShowAddContact(false);
-        setManualPhone('');
-        setSearchInContacts('');
-        setSearchSuggestions([]);
-    };
-    
-    // Total guests logic needs to be based on matchingResults.length if filtering is on the client side
-    const totalFilteredGuests = filteredResults.length;
-
+export const SuccessScreen = ({ 
+    currentGuestIndex, 
+    autoSelectedCount,
+    perfectMatchesCount,
+    exportResults,
+    isLoading,
+    onRestart
+  }) => {
     return (
-        <div className="matching-layout">
-            
-            <MatchingSidebar 
-                currentUser={currentUser}
-                DAILY_LIMIT={currentUser.DAILY_LIMIT} // Assuming it's available here
-                exportResults={exportResults}
-                isLoading={isLoading}
-                currentGuestIndex={currentGuestIndex}
-                filters={filters}
-                setFilters={setFilters}
-                getUniqueValues={getUniqueValues}
-                onUpgradeClick={onUpgradeClick}
-            />
-
-            <div className="main-content">
-                <GuestCard 
-                    currentGuest={currentGuest}
-                    currentGuestIndex={currentGuestIndex}
-                    totalGuests={totalFilteredGuests}
-                    selectedContacts={selectedContacts}
-                    selectCandidate={selectCandidate}
-                    showAddContact={showAddContact}
-                    setShowAddContact={setShowAddContact}
-                    manualPhone={manualPhone}
-                    setManualPhone={setManualPhone}
-                    addManualContact={addManualContact}
-                    searchInContacts={searchInContacts}
-                    handleSearchInput={handleSearchInput}
-                    showSuggestions={showSuggestions}
-                    searchSuggestions={searchSuggestions}
-                    selectFromSuggestion={selectFromSuggestion}
-                    setSearchInContacts={setSearchInContacts}
-                    setShowSuggestions={setShowSuggestions}
-                    AUTO_SELECT_TH={AUTO_SELECT_TH}
-                />
-                
-                {/* Navigation Buttons are now inside GuestCard as per final UX/UI */}
-            </div>
-
+      <div style={{ textAlign: 'center' }}>
+        <h2>🎉 כל הכבוד! סיימת!</h2>
+        <div style={{ fontSize: '3rem', margin: '20px 0' }}>✨</div>
+        <p>עיבדת בהצלחה {currentGuestIndex + 1} מוזמנים!</p>
+        
+        {autoSelectedCount > 0 && (
+          <div className="perfect-match-badge">
+            🎯 {autoSelectedCount} התאמות אוטומטיות (93%+)
+          </div>
+        )}
+        
+        {perfectMatchesCount > 0 && (
+          <div className="perfect-match-badge" style={{ background: 'linear-gradient(135deg, #ffd700, #ffed4e)' }}>
+            💯 {perfectMatchesCount} התאמות מושלמות (100%)
+          </div>
+        )}
+        
+        <div style={{ 
+          background: 'linear-gradient(135deg, rgba(42, 157, 143, 0.1), rgba(244, 162, 97, 0.1))', 
+          padding: '20px', 
+          borderRadius: '15px', 
+          margin: '30px 0' 
+        }}>
+          <h3>📥 מה הלאה?</h3>
+          <p>הורד את קובץ התוצאות עם מספרי הטלפון!</p>
         </div>
+        
+        <button 
+          className="btn btn-primary"
+          onClick={exportResults}
+          disabled={isLoading}
+          style={{ fontSize: '1.2rem', padding: '20px 40px' }}
+        >
+          {isLoading ? '⏳ מכין קובץ...' : '📥 הורד את התוצאות'}
+        </button>
+        
+        <div style={{ marginTop: '20px' }}>
+          <button 
+            className="btn btn-secondary"
+            onClick={onRestart}
+          >
+            🔄 התחל מחדש
+          </button>
+        </div>
+      </div>
     );
+  };
+
+
+export { 
+  LimitDisplay, 
+  UploadScreen, 
+  MatchingSidebar, 
+  GuestCard, 
+  SuccessScreen 
 };
-
-
-// רכיבי עזר נוספים
-export const UploadScreen = () => <div>Upload Screen Content</div>;
-export const SuccessScreen = () => <div>Success Screen Content</div>;
