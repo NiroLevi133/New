@@ -15,7 +15,7 @@ const ChatunoTech = () => {
     phone: '',
     fullName: '',
     remainingMatches: 30,
-    isPro: false, // נטען מה-Backend
+    isPro: false,
     hoursUntilReset: 0,
   });
   const [uploadedFiles, setUploadedFiles] = useState({
@@ -74,7 +74,7 @@ const ChatunoTech = () => {
 
   // Helper functions
   const showMessage = (text, type) => {
-    // משאיר רק הודעות שגיאה (error) ואזהרה (warning) גלויות
+    // 🔥 משאיר רק הודעות שגיאה (error) ואזהרה (warning) גלויות
     if (type === 'error' || type === 'warning') {
         setMessage({ text, type });
         setTimeout(() => setMessage({ text: '', type: '' }), 5000);
@@ -167,12 +167,12 @@ const ChatunoTech = () => {
           setCurrentUser((prev) => ({ 
             ...prev, 
             remainingMatches: data.remaining_matches || 30,
-            isPro: data.is_premium || false, // 🔥 מקבל סטטוס isPro מה-Backend (מהגיליון)
+            isPro: data.is_premium || false,
             hoursUntilReset: data.hours_until_reset || 0
           }));
 
           setTimeout(() => {
-            // אם אין התאמות ואינו פרימיום - עבור למסך חסימה
+            // 🔥 בדיקת הגבלה נשארת, אך ללא הודעות קופצות
             if (data.remaining_matches <= 0 && !data.is_premium) {
               setCurrentScreen('limitReached');
             } else {
@@ -193,6 +193,7 @@ const ChatunoTech = () => {
   const backToPhoneScreen = () => {
     setShowCodeInput(false);
     setCodeValue('');
+    showMessage('ניתן לשלוח קוד חדש', 'info'); // השארת הודעה זו כהודעת מידע
   };
 
   // File Upload
@@ -201,6 +202,7 @@ const ChatunoTech = () => {
     if (!file) return;
 
     try {
+      // 🔥 הוסר showMessage
       
       setUploadedFiles(prev => ({
         ...prev,
@@ -211,9 +213,12 @@ const ChatunoTech = () => {
         setContactsSource('file');
       }
       
+      // אם זה קובץ מוזמנים - בדוק אם יש עמודת טלפון
       if (type === 'guests') {
         await checkPhoneColumnInFile(file);
       }
+      
+      // 🔥 הוסר showMessage
       
     } catch (error) {
       showMessage(`❌ שגיאה: ${error.message}`, 'error');
@@ -222,6 +227,7 @@ const ChatunoTech = () => {
 
   // בדיקת עמודת טלפון
   const checkPhoneColumnInFile = async (file) => {
+    // ... (קוד נשאר זהה) ...
     try {
       const formData = new FormData();
       formData.append('guests_file', file);
@@ -280,6 +286,7 @@ const ChatunoTech = () => {
   };
 
   const extractAllContacts = (results) => {
+    // ... (קוד נשאר זהה) ...
     const allContacts = new Map();
     
     results.forEach(result => {
@@ -375,6 +382,8 @@ const ChatunoTech = () => {
       if (data.warning) {
         showMessage(`⚠️ ${data.warning}`, 'warning');
       }
+
+      // 🔥 הוסרו הודעות ה-success על התאמות
       
       if (data.remaining_matches !== undefined) {
         setCurrentUser(prev => ({
@@ -420,6 +429,7 @@ const ChatunoTech = () => {
     };
 
     selectCandidate(newContact);
+    // 🔥 הוסר showMessage
   };
 
   // Search
@@ -453,6 +463,7 @@ const ChatunoTech = () => {
     setSearchInContacts('');
     setShowSuggestions(false);
     setSearchSuggestions([]);
+    // 🔥 הוסר showMessage
   };
 
   // Next Guest - עם בדיקת מגבלה (תיקון קריטי)
@@ -571,6 +582,7 @@ const ChatunoTech = () => {
   const exportResults = async () => {
     try {
       setIsLoading(true);
+      // 🔥 הוסר showMessage
 
       // עדכון Batch לפני ייצוא
       await completeSession();
@@ -610,6 +622,7 @@ const ChatunoTech = () => {
 
   // Payment
   const payWithWhatsApp = () => {
+    // 🔥 הוסר showMessage
     
     const message = `שלום! אני רוצה לשדרג לפרימיום (39₪)
 📱 טלפון: ${currentUser.phone}
@@ -625,6 +638,7 @@ const ChatunoTech = () => {
   };
 
   const checkPaymentStatus = () => {
+    // 🔥 הוסר showMessage
     
     const checkInterval = setInterval(async () => {
       try {
@@ -636,6 +650,7 @@ const ChatunoTech = () => {
           if (data.is_premium) {
             clearInterval(checkInterval);
             setCurrentUser((prev) => ({ ...prev, isPro: true, remainingMatches: 999999 }));
+            showMessage('🎉 תשלום הושלם! אתה Pro!', 'success');
             setTimeout(() => setCurrentScreen('matchingScreen'), 2000);
           }
         }

@@ -3,11 +3,13 @@
 ==============================================
     Guest Matcher API v5.0 - BATCH UPDATE
 ==============================================
+🔥 Batch processing - עדכון רק בסוף
 """
 
 import logging
 import sys
 from datetime import datetime, timedelta
+from functools import wraps
 from typing import Optional, Dict, Any
 import traceback
 import gc
@@ -104,7 +106,7 @@ if GREEN_API_ID and GREEN_API_TOKEN:
     GREEN_API_URL = f"https://api.green-api.com/waInstance{GREEN_API_ID}/sendMessage/{GREEN_API_TOKEN}"
     logger.info("✅ WhatsApp configured")
 
-# In-Memory Storage
+# 🔥 In-Memory Storage - עכשיו שומר את הקובץ המקורי!
 pending_codes: Dict[str, Dict[str, Any]] = {}
 rate_limit_tracker: Dict[str, list] = {}
 user_sessions: Dict[str, Dict[str, Any]] = {}
@@ -143,8 +145,7 @@ def get_google_client():
         return _google_client
     
     if not GOOGLE_CREDENTIALS_JSON:
-        logger.error("❌ Google credentials not configured")
-        return None
+        raise Exception("Google credentials not configured")
     
     try:
         creds_info = json.loads(GOOGLE_CREDENTIALS_JSON)
@@ -169,9 +170,6 @@ async def get_worksheet():
     """Get worksheet with error handling"""
     try:
         gc = get_google_client()
-        if gc is None:
-            return None
-        
         sh = gc.open_by_key(GOOGLE_SHEET_ID)
         
         try:
@@ -179,7 +177,7 @@ async def get_worksheet():
         except:
             ws = sh.add_worksheet(title=GOOGLE_SHEET_NAME, rows="1000", cols="10")
             headers = ['id', 'full_name', 'phone', 'join_date', 'last_activity', 
-                      'daily_matches_used', 'current_file_hash', 'current_progress', 'is_premium']
+                      'remaining_matches', 'current_file_hash', 'current_progress', 'is_premium']
             ws.update('A1:I1', [headers])
             logger.info(f"✅ Created worksheet: {GOOGLE_SHEET_NAME}")
             
@@ -201,11 +199,10 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
             if len(row) > 2 and row[2] == phone:
                 # 1. חילוץ נתונים
                 last_activity_str = row[4] if len(row) > 4 else ""
-                # עמודה F (אינדקס 5) היא daily_matches_used
+                # עמודה 5 (F) היא daily_matches_used
                 daily_used = int(row[5]) if len(row) > 5 and row[5] and str(row[5]).isdigit() else 0 
                 remaining = DAILY_LIMIT - daily_used
-                # 🔥 לוגיקה פשוטה: is_premium = True אם כתוב True בגיליון
-                is_premium = str(row[8]).upper() == 'TRUE' if len(row) > 8 else False 
+                is_premium = str(row[8]).upper() == 'TRUE' if len(row) > 8 else False
                 
                 now = datetime.now()
                 hours_passed = 24
@@ -213,30 +210,35 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
                 # 2. בדיקת זמן איפוס
                 if last_activity_str:
                     try:
+                        # 🔥 נסה לקרוא את פורמט התאריך הסטנדרטי שלך
                         last_activity = datetime.strptime(last_activity_str, "%d/%m/%y %H:%M")
                         hours_passed = (now - last_activity).total_seconds() / 3600
                     except ValueError:
+                         # נסה פורמט אחר אם יש בעיה (למקרה של תאריך מלא כמו 2025-10-06T00:50:08.571739)
                         try:
                             last_activity = datetime.fromisoformat(last_activity_str)
                             hours_passed = (now - last_activity).total_seconds() / 3600
                         except:
-                            hours_passed = 24 
+                            hours_passed = 24 # אם יש שגיאת פורמט, נניח שהזמן עבר
                             logger.warning(f"⚠️ Invalid date format for {phone}, assuming 24h passed.")
                     except Exception:
                         pass
                 
                 # 3. איפוס המונה (Daily Used)
                 if hours_passed >= 24 and daily_used > 0:
+                    # 🚨 איפוס: אם עברו 24 שעות והוא השתמש במונה, אפס אותו.
                     ws.update(f"F{i}", 0) # מאפסים את המונה ל-0 שימוש
                     daily_used = 0
                     remaining = DAILY_LIMIT
-                    hours_passed = 24 
+                    hours_passed = 24 # מאפס את הזמן שחלף לצורך חישוב hours_until_reset
                     logger.info(f"♻️ Daily usage reset for {phone}")
 
                 # 4. חישוב שעות עד איפוס (Hours Until Reset)
+                # 🔥 אם הוא פרימיום או שיש לו 30 התאמות (כי הוא אופס או עדיין לא השתמש), אין זמן איפוס.
                 if is_premium or remaining >= DAILY_LIMIT:
                     hours_until_reset = 0
                 else:
+                    # הוא השתמש (remaining < 30) והזמן עדיין לא עבר:
                     hours_until_reset = max(0.0, 24.0 - hours_passed)
                 
                 return {
@@ -246,46 +248,42 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
                     "last_activity": last_activity_str
                 }
         
-        # משתמש חדש
         return {"remaining_matches": DAILY_LIMIT, "is_premium": False, "hours_until_reset": 0}
         
     except Exception as e:
         logger.error(f"❌ Check reset failed: {e}")
         return {"remaining_matches": DAILY_LIMIT, "is_premium": False, "hours_until_reset": 0}
 
-# 🔥 תיקון קריטי: עדכון BATCH בסוף
+# 🔥 עדכון BATCH בסוף
 async def batch_update_user(phone: str, matches_used: int):
     """
-    עדכון Batch - מעדכן את מספר ההתאמות שבוצעו ומועד הפעילות האחרון.
+    🔥 עדכון Batch - מעדכן הכל בבת אחת בסוף
     """
     try:
         ws = await get_worksheet()
         if not ws:
-            return DAILY_LIMIT
+            return 0
         
         all_values = ws.get_all_values()
         now = datetime.now().strftime("%d/%m/%y %H:%M")
         
         for i, row in enumerate(all_values[1:], 2):
             if len(row) > 2 and row[2] == phone:
-                # קריאה מדוייקת יותר של המונה הנוכחי מתוך הגיליון
-                current_used = int(row[5]) if len(row) > 5 and row[5] and str(row[5]).isdigit() else 0
+                # 🚨 קריאה מדוייקת יותר מהגיליון לפני עדכון
+                current_remaining = int(row[5]) if len(row) > 5 and row[5] and str(row[5]).isdigit() else DAILY_LIMIT
                 is_premium = str(row[8]).upper() == 'TRUE' if len(row) > 8 else False
                 
                 if is_premium:
-                    new_used = 0
                     new_remaining = 999999
                 else:
-                    # החישוב הנכון: מוסיפים את השימוש הנוכחי למונה הקיים
-                    new_used = min(DAILY_LIMIT, current_used + matches_used)
-                    new_remaining = DAILY_LIMIT - new_used
+                    new_remaining = max(0, current_remaining - matches_used)
                 
-                # עדכון בבת אחת - E (last_activity), F (daily_matches_used)
-                ws.update(f"E{i}:F{i}", [[now, new_used]])
-                logger.info(f"✅ Batch updated {phone}: used {matches_used}, TOTAL used {new_used}, remaining {new_remaining}")
+                # עדכון בבת אחת - שימו לב: remaining_matches נמצא בעמודה F (אינדקס 5)
+                ws.update(f"E{i}:F{i}", [[now, new_remaining]])
+                logger.info(f"✅ Batch updated {phone}: used {matches_used}, remaining {new_remaining}")
                 return new_remaining
         
-        return DAILY_LIMIT
+        return 0
                 
     except Exception as e:
         logger.error(f"❌ Batch update failed: {e}")
@@ -294,25 +292,59 @@ async def batch_update_user(phone: str, matches_used: int):
 # ============================================================
 #                    HELPER FUNCTIONS
 # ============================================================
-# ... (שאר פונקציות העזר נשארות זהות) ...
+
+# (שאר פונקציות העזר נשארות כפי שהן)
+# ...
 
 def format_phone_for_whatsapp(phone: str) -> str:
-# ... (פונקציה נשארת זהה) ...
+    """Format phone for WhatsApp"""
+    digits = re.sub(r'\D', '', phone)
+    if digits.startswith('0'):
+        digits = '972' + digits[1:]
+    return digits
 
 def create_file_hash(content: bytes) -> str:
-# ... (פונקציה נשארת זהה) ...
+    """Generate MD5 hash"""
+    return hashlib.md5(content).hexdigest()
 
 def check_rate_limit(identifier: str) -> bool:
-# ... (פונקציה נשארת זהה) ...
+    """Check rate limit"""
+    now = time.time()
+    
+    if identifier not in rate_limit_tracker:
+        rate_limit_tracker[identifier] = []
+    
+    rate_limit_tracker[identifier] = [
+        req_time for req_time in rate_limit_tracker[identifier]
+        if now - req_time < 60
+    ]
+    
+    if len(rate_limit_tracker[identifier]) >= RATE_LIMIT_PER_MINUTE:
+        return False
+    
+    rate_limit_tracker[identifier].append(now)
+    return True
 
 def validate_file(file: UploadFile) -> tuple[bool, str]:
-# ... (פונקציה נשארת זהה) ...
+    """Validate file"""
+    if not file.filename:
+        return False, "No filename"
+    
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_FILE_TYPES:
+        return False, f"Invalid type. Allowed: {', '.join(ALLOWED_FILE_TYPES)}"
+    
+    return True, "OK"
 
 def validate_phone(phone: str) -> bool:
-# ... (פונקציה נשארת זהה) ...
+    """Validate Israeli phone"""
+    phone_regex = r'^05\d{8}$'
+    return bool(re.match(phone_regex, phone))
 
 def validate_name(name: str) -> bool:
-# ... (פונקציה נשארת זהה) ...
+    """Validate name"""
+    name_regex = r'^[\u0590-\u05FFa-zA-Z\s]{2,}$'
+    return bool(re.match(name_regex, name.strip()))
 
 async def log_user_to_sheets(phone: str, full_name: str = ""):
     """Save user to Sheets"""
@@ -341,10 +373,7 @@ async def log_user_to_sheets(phone: str, full_name: str = ""):
         if existing_row:
             if full_name and full_name.strip():
                 ws.update(f"B{existing_row}", full_name)
-            
-            # 🔥 לא מעדכנים is_premium כאן. הסטטוס נשמר רק כפי שהוגדר בגיליון.
-            ws.update(f"E{existing_row}", current_time) # עדכון last_activity
-            logger.info(f"✅ Updated user activity: {phone}")
+            logger.info(f"✅ Updated user: {phone}")
         else:
             next_row = len(all_values) + 1
             next_id = next_row - 1
@@ -354,11 +383,11 @@ async def log_user_to_sheets(phone: str, full_name: str = ""):
                 full_name or phone,
                 phone,
                 current_time,
-                "", # last_activity
-                0,  # daily_matches_used
+                "",
+                DAILY_LIMIT, # ברירת מחדל: 30
                 "",
                 0,
-                False # is_premium
+                False
             ]
             
             ws.update(f"A{next_row}:I{next_row}", [new_user_data])
@@ -367,13 +396,108 @@ async def log_user_to_sheets(phone: str, full_name: str = ""):
     except Exception as e:
         logger.error(f"❌ Log user failed: {e}")
 
-# ... (שאר פונקציות העזר נשארות זהות) ...
+def cleanup_memory():
+    """Force GC"""
+    gc.collect()
+    logger.debug("🧹 Memory cleaned")
+
+def format_time_until_reset(hours: float) -> str:
+    """Format hours"""
+    if hours <= 0:
+        return "ההגבלה אופסה!"
+    
+    total_minutes = int(hours * 60)
+    hours_int = total_minutes // 60
+    minutes_int = total_minutes % 60
+    
+    if hours_int > 0:
+        return f"{hours_int} שעות ו-{minutes_int} דקות"
+    else:
+        return f"{minutes_int} דקות"
 
 # ============================================================
 #                    API ROUTES
 # ============================================================
 
-# ... (Routes: /, /health, /send-code נשארים זהים) ...
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "name": "Guest Matcher API",
+        "version": "5.0.0",
+        "status": "operational",
+        "features": {
+            "matching": LOGIC_AVAILABLE,
+            "database": bool(GOOGLE_SHEET_ID),
+            "whatsapp": bool(GREEN_API_URL),
+            "batch_update": True,
+            "smart_export": True
+        }
+    }
+
+@app.get("/health")
+async def health():
+    """Health check"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "logic": LOGIC_AVAILABLE,
+        "database": bool(GOOGLE_SHEET_ID and GOOGLE_CREDENTIALS_JSON),
+        "whatsapp": bool(GREEN_API_URL)
+    }
+
+@app.post("/send-code")
+async def send_code(data: dict, request: Request):
+    """Send verification code"""
+    phone = data.get("phone")
+    full_name = data.get("full_name", "")
+    
+    if not phone:
+        raise HTTPException(400, "Phone required")
+    
+    if not validate_phone(phone):
+        raise HTTPException(400, "Invalid phone")
+    
+    if full_name and not validate_name(full_name):
+        raise HTTPException(400, "Invalid name")
+    
+    if not check_rate_limit(phone):
+        raise HTTPException(429, "Too many requests")
+    
+    if not GREEN_API_URL:
+        # אם אין וואטסאפ מוגדר, השתמש בקוד ראשי לצורך בדיקה
+        code = MASTER_CODE if phone == "0507676706" else str(random.randint(1000, 9999))
+        
+        pending_codes[phone] = {
+            "code": code,
+            "timestamp": time.time(),
+            "full_name": full_name
+        }
+        
+        logger.warning(f"⚠️ WhatsApp not configured, returning code {code}")
+        return {"status": "success", "code": code}
+
+    formatted_phone = format_phone_for_whatsapp(phone)
+    code = str(random.randint(1000, 9999))
+    
+    pending_codes[phone] = {
+        "code": code,
+        "timestamp": time.time(),
+        "full_name": full_name
+    }
+    
+    payload = {
+        "chatId": f"{formatted_phone}@c.us",
+        "message": f"🔐 קוד האימות שלך: {code}"
+    }
+
+    try:
+        res = requests.post(GREEN_API_URL, json=payload, timeout=10)
+        logger.info(f"📱 Code sent to {formatted_phone}")
+        return {"status": "success", "code": code}
+    except Exception as e:
+        logger.warning(f"⚠️ WhatsApp error: {e}")
+        return {"status": "success", "code": code}
 
 @app.post("/verify-code")
 async def verify_code(data: dict):
@@ -385,7 +509,18 @@ async def verify_code(data: dict):
     if not phone or not code:
         raise HTTPException(400, "Phone and code required")
     
-    # 🔥 הוסר הטיפול המיוחד ב-ADMIN_CODES. כעת הוא משתמש רגיל.
+    # Admin
+    if phone in ADMIN_CODES and code == ADMIN_CODES[phone]:
+        logger.info(f"👑 Admin login: {phone}")
+        await log_user_to_sheets(phone, full_name or "Admin")
+        
+        return {
+            "status": "success",
+            "remaining_matches": 999999,
+            "is_premium": True,
+            "hours_until_reset": 0,
+            "is_admin": True
+        }
     
     # Master code
     if code == MASTER_CODE:
@@ -393,7 +528,6 @@ async def verify_code(data: dict):
         await log_user_to_sheets(phone, full_name)
         user_data = await check_and_reset_user(phone)
         
-        # 🔥 אם משתמש נכנס עם MASTER_CODE, הוא מקבל את הסטטוס הרגיל שלו
         return {
             "status": "success",
             "remaining_matches": user_data["remaining_matches"],
@@ -416,8 +550,7 @@ async def verify_code(data: dict):
             pending_codes.pop(phone, None)
             
             await log_user_to_sheets(phone, full_name)
-            # קריאה ל-check_and_reset_user תביא את המונה המעודכן מה-Sheets
-            user_data = await check_and_reset_user(phone) 
+            user_data = await check_and_reset_user(phone)
             
             logger.info(f"✅ User verified: {phone}")
             
@@ -430,8 +563,6 @@ async def verify_code(data: dict):
     
     logger.warning(f"❌ Invalid code: {phone}")
     return {"status": "failed"}
-
-
 
 # 🔥 נקודת קצה חדשה לבדיקת עמודת טלפון
 @app.post("/check-phone-column")
