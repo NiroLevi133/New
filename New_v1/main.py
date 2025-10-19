@@ -86,7 +86,7 @@ except Exception as e:
 #                    CONFIGURATION
 # ============================================================
 
-DAILY_LIMIT = 29
+DAILY_LIMIT = 30
 MAX_FILE_SIZE = 50 * 1024 * 1024
 RATE_LIMIT_PER_MINUTE = 100
 ALLOWED_FILE_TYPES = {'.xlsx', '.xls', '.csv'}
