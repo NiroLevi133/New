@@ -335,23 +335,7 @@ const GuestCard = ({
 
       
       {/* 5. כפתורי ניווט - מחוברים בתחתית (הכפתורים היחידים שנשארו) */}
-      <div className="navigation-buttons">
-          <button 
-            className="btn btn-secondary"
-            onClick={previousGuest}
-            disabled={currentGuestIndex === 0}
-          >
-            ⬅️ הקודם
-          </button>
-          
-          <button 
-            className="btn btn-primary"
-            onClick={nextGuest}
-            disabled={!isSelected}
-          >
-            {currentGuestIndex === totalGuests - 1 ? '🎉 סיים וייצא' : 'הבאא ➡️'}
-          </button>
-      </div>
+
     </>
   );
 };

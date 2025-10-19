@@ -108,7 +108,6 @@ const ChatunoTech = () => {
       });
 
       if (response.ok) {
-        showMessage('📱 קוד נשלח בהצלחה!', 'success');
         setAuthStep('codeScreen'); // ➡️ מעבר לשלב הקוד
         setCurrentUser((prev) => ({ 
           ...prev, 
@@ -1032,7 +1031,6 @@ const ChatunoTech = () => {
                   onClick={() => {
                     setSkipFilledPhones(false);
                     setShowPhoneColumnDialog(false);
-                    showMessage('📝 נעדכן את כולם', 'success');
                   }}
                 >
                   📝 לא, עדכן את כולם
