@@ -13,6 +13,8 @@ import traceback
 import gc
 from apscheduler.schedulers.background import BackgroundScheduler
 import json
+from dotenv import load_dotenv
+load_dotenv()
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 import pickle
