@@ -54,6 +54,8 @@ from rapidfuzz import fuzz, distance
 import pickle
 import base64
 from datetime import datetime
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaInMemoryUpload
 
 # Google Sheets via ADC (Cloud Run Service Account)
 try:
@@ -63,6 +65,8 @@ try:
 except ImportError:
     GOOGLE_AVAILABLE = False
     logging.warning("Google auth not available - using local files only")
+    
+DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_PARENT_FOLDER_ID', None)
 
 # ───────── קבועים ─────────
 NAME_COL          = "שם מלא"
@@ -113,61 +117,80 @@ def save_session_to_drive(gc, phone: str, session_data: dict) -> str:
     שומר את המצב של המשתמש ב-Google Drive
     """
     try:
-        # יצירת/מציאת תיקייה למשתמש
-        folder_name = f"guest_matcher_sessions_{phone}"
+        # בניית שירות Drive
+        drive_service = build('drive', 'v3', credentials=gc.auth)
+        
+        folder_name = f"sessions_{phone}"
         
         # חיפוש תיקייה קיימת
-        file_list = gc.list_spreadsheet_files()
-        folder_id = None
+        if DRIVE_PARENT_FOLDER_ID:
+            # חפש בתוך התיקייה הראשית
+            query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        else:
+            # חפש בכל ה-Drive
+            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
         
-        for file in file_list:
-            if file['name'] == folder_name and file['mimeType'] == 'application/vnd.google-apps.folder':
-                folder_id = file['id']
-                break
+        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+        folders = results.get('files', [])
         
-        # אם אין תיקייה - יצירה
-        if not folder_id:
+        if folders:
+            folder_id = folders[0]['id']
+        else:
+            # יצירת תיקייה חדשה
             folder_metadata = {
                 'name': folder_name,
                 'mimeType': 'application/vnd.google-apps.folder'
             }
-            folder = gc.create(folder_metadata)
-            folder_id = folder['id']
+            # אם יש תיקייה ראשית, הוסף אותה כ-parent
+            if DRIVE_PARENT_FOLDER_ID:
+                folder_metadata['parents'] = [DRIVE_PARENT_FOLDER_ID]
+            
+            folder = drive_service.files().create(body=folder_metadata, fields='id').execute()
+            folder_id = folder.get('id')
         
         # שמירת הסשן
         session_filename = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
         
-        # המרה ל-pickle ואז ל-base64
+        # המרה ל-pickle
         pickled_data = pickle.dumps(session_data)
-        encoded_data = base64.b64encode(pickled_data).decode('utf-8')
         
         # יצירת קובץ ב-Drive
         file_metadata = {
             'name': session_filename,
-            'parents': [folder_id],
-            'mimeType': 'application/octet-stream'
+            'parents': [folder_id]
         }
         
-        # שמירה
         media = MediaInMemoryUpload(pickled_data, mimetype='application/octet-stream')
-        file = gc.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        file = drive_service.files().create(
+            body=file_metadata, 
+            media_body=media, 
+            fields='id'
+        ).execute()
         
+        logging.info(f"✅ Session saved for {phone}: {file.get('id')}")
         return file.get('id')
         
     except Exception as e:
         logging.error(f"Failed to save session to Drive: {e}")
         return None
 
+
 def load_session_from_drive(gc, phone: str) -> dict:
     """
     טוען את המצב האחרון של המשתמש מ-Google Drive
     """
     try:
-        folder_name = f"guest_matcher_sessions_{phone}"
+        drive_service = build('drive', 'v3', credentials=gc.auth)
+        
+        folder_name = f"sessions_{phone}"
         
         # חיפוש התיקייה
-        query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
-        results = gc.files().list(q=query, fields="files(id, name)").execute()
+        if DRIVE_PARENT_FOLDER_ID:
+            query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        else:
+            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        
+        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
         folders = results.get('files', [])
         
         if not folders:
@@ -177,7 +200,7 @@ def load_session_from_drive(gc, phone: str) -> dict:
         
         # חיפוש הקובץ האחרון
         query = f"'{folder_id}' in parents and trashed=false"
-        results = gc.files().list(
+        results = drive_service.files().list(
             q=query,
             orderBy='createdTime desc',
             pageSize=1,
@@ -190,31 +213,50 @@ def load_session_from_drive(gc, phone: str) -> dict:
             
         # הורדת הקובץ
         file_id = files[0]['id']
-        request = gc.files().get_media(fileId=file_id)
+        request = drive_service.files().get_media(fileId=file_id)
         content = request.execute()
         
         # פענוח
         session_data = pickle.loads(content)
+        logging.info(f"✅ Session loaded for {phone}")
         return session_data
         
     except Exception as e:
         logging.error(f"Failed to load session from Drive: {e}")
         return None
 
+
 def save_files_to_drive(gc, phone: str, guests_file, contacts_file) -> dict:
     """
     שומר את הקבצים המקוריים ב-Drive
     """
     try:
-        folder_name = f"guest_files_{phone}"
+        drive_service = build('drive', 'v3', credentials=gc.auth)
         
-        # יצירת תיקייה
-        folder_metadata = {
-            'name': folder_name,
-            'mimeType': 'application/vnd.google-apps.folder'
-        }
-        folder = gc.create(folder_metadata)
-        folder_id = folder['id']
+        folder_name = f"files_{phone}"
+        
+        # בדיקה אם תיקייה קיימת
+        if DRIVE_PARENT_FOLDER_ID:
+            query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        else:
+            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        
+        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+        folders = results.get('files', [])
+        
+        if folders:
+            folder_id = folders[0]['id']
+        else:
+            # יצירת תיקייה חדשה
+            folder_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            if DRIVE_PARENT_FOLDER_ID:
+                folder_metadata['parents'] = [DRIVE_PARENT_FOLDER_ID]
+            
+            folder = drive_service.files().create(body=folder_metadata, fields='id').execute()
+            folder_id = folder.get('id')
         
         saved_files = {}
         
@@ -224,12 +266,20 @@ def save_files_to_drive(gc, phone: str, guests_file, contacts_file) -> dict:
             guests_file.seek(0)
             
             file_metadata = {
-                'name': f"guests_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                'name': f"guests_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 'parents': [folder_id]
             }
-            media = MediaInMemoryUpload(guests_content, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            file = gc.files().create(body=file_metadata, media_body=media, fields='id').execute()
+            media = MediaInMemoryUpload(
+                guests_content, 
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            file = drive_service.files().create(
+                body=file_metadata, 
+                media_body=media, 
+                fields='id'
+            ).execute()
             saved_files['guests_id'] = file.get('id')
+            logging.info(f"✅ Guests file saved: {file.get('id')}")
         
         # שמירת קובץ אנשי קשר
         if contacts_file and contacts_file != 'mobile_contacts':
@@ -237,12 +287,20 @@ def save_files_to_drive(gc, phone: str, guests_file, contacts_file) -> dict:
             contacts_file.seek(0)
             
             file_metadata = {
-                'name': f"contacts_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                'name': f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 'parents': [folder_id]
             }
-            media = MediaInMemoryUpload(contacts_content, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            file = gc.files().create(body=file_metadata, media_body=media, fields='id').execute()
+            media = MediaInMemoryUpload(
+                contacts_content, 
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            file = drive_service.files().create(
+                body=file_metadata, 
+                media_body=media, 
+                fields='id'
+            ).execute()
             saved_files['contacts_id'] = file.get('id')
+            logging.info(f"✅ Contacts file saved: {file.get('id')}")
             
         return saved_files
         
