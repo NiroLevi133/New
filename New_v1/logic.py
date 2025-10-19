@@ -131,7 +131,7 @@ def save_session_to_drive(gc, phone: str, session_data: dict) -> str:
         
         folder_name = f"sessions_{phone}"
         
-        # ... (לוגיקה קיימת לחיפוש/יצירת התיקייה)
+        # חיפוש תיקייה קיימת
         if DRIVE_PARENT_FOLDER_ID:
             query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
         else:
@@ -156,8 +156,22 @@ def save_session_to_drive(gc, phone: str, session_data: dict) -> str:
         
         # שמירת הסשן
         session_filename = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
-        pickled_data = pickle.dumps(session_data)
         
+        # 🔥 תיקון קריטי: ניקוי הנתונים כדי למנוע PicklingError
+        try:
+            # הפיכת הנתונים לנקיים מאובייקטים מורכבים ע"י מעבר דרך JSON
+            clean_data_json = json.dumps(session_data)
+            clean_session_data = json.loads(clean_data_json)
+        except Exception as e:
+            # אם יש שגיאה כאן, נזרוק אותה כ-TypeError ברור (למרות שהיא נתפסת ב-except הגדול)
+            logging.error(f"❌ CRITICAL JSON cleaning failed on input data: {e}")
+            logging.error(traceback.format_exc())
+            raise TypeError("Session data contains objects that cannot be serialized (Pickle/JSON).")
+
+        # המרה ל-pickle
+        pickled_data = pickle.dumps(clean_session_data)
+        
+        # יצירת קובץ ב-Drive
         file_metadata = {
             'name': session_filename,
             'parents': [folder_id]
@@ -174,9 +188,10 @@ def save_session_to_drive(gc, phone: str, session_data: dict) -> str:
         return file.get('id')
         
     except Exception as e:
+        # לכידת כל שגיאה אפשרית (כולל PicklingError או Drive API HttpError)
         logging.error(f"❌ Failed to save session to Drive: {e}")
-        logging.error(traceback.format_exc()) # 🔥 הוספת Traceback
-        return None
+        logging.error(traceback.format_exc())
+        return None # מחזיר None כדי שה-main.py יחזיר 200 OK עם session_id: null
 
 
 def load_session_from_drive(gc, phone: str) -> dict:
