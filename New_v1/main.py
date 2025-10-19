@@ -697,6 +697,7 @@ async def save_session_endpoint(data: dict):
         
     except Exception as e:
         logger.error(f"Save session error: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(500, f"Failed to save session: {str(e)}")
 
 # Endpoint לטעינת סשן
@@ -765,6 +766,7 @@ async def save_files_endpoint(
         
     except Exception as e:
         logger.error(f"Save files error: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(500, f"Failed to save files: {str(e)}")
     
 @app.post("/save-full-name")
