@@ -97,7 +97,6 @@ const ChatunoTech = () => {
 
     try {
       setIsLoading(true);
-      showMessage('📱 שולח קוד...', 'success');
       
       // 🔥 קורא ל-send-code ללא שם (דרישה D)
       const response = await fetch(`${API_BASE_URL}/send-code`, {
@@ -134,7 +133,6 @@ const ChatunoTech = () => {
 
     try {
       setIsLoading(true);
-      showMessage('🔐 מאמת קוד...', 'success');
       
       const response = await fetch(`${API_BASE_URL}/verify-code`, {
         method: 'POST',
@@ -182,7 +180,6 @@ const ChatunoTech = () => {
 
     try {
       setIsLoading(true);
-      showMessage('💾 שומר שם...', 'success');
       
       // 🔥 קורא לנקודת הקצה החדשה לשמירת שם
       const response = await fetch(`${API_BASE_URL}/save-full-name`, {

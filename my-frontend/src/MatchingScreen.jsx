@@ -349,7 +349,7 @@ const GuestCard = ({
             onClick={nextGuest}
             disabled={!isSelected}
           >
-            {currentGuestIndex === totalGuests - 1 ? '🎉 סיים וייצא' : 'הבא ➡️'}
+            {currentGuestIndex === totalGuests - 1 ? '🎉 סיים וייצא' : 'הבאא ➡️'}
           </button>
       </div>
     </>
