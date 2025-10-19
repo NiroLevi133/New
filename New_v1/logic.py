@@ -52,17 +52,16 @@ import unidecode
 from rapidfuzz import fuzz, distance
 
 
-import io, os, json, logging
+import io, os, json, logging, traceback
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 from google.oauth2 import service_account
 
 import pickle
 import base64
 from datetime import datetime
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaInMemoryUpload
+from googleapiclient.http import MediaInMemoryUpload, MediaIoBaseUpload
 
+ 
 # Google Sheets via ADC (Cloud Run Service Account)
 try:
     import google.auth
@@ -118,12 +117,7 @@ SUFFIX_TOKENS: Set[str] = {
 
 # ───────── עזרים בסיסיים ─────────
 
-# 🔥 יש לוודא שבראש קובץ logic.py יש את הייבוא הבא:
-# import os, json, traceback, pickle, io
-# from googleapiclient.discovery import build
-# from googleapiclient.http import MediaInMemoryUpload, MediaIoBaseUpload
-# from google.oauth2 import service_account
-# from datetime import datetime
+
 
 # הערה: יש להניח ש-DRIVE_PARENT_FOLDER_ID זמין גלובלית ב-logic.py
 
