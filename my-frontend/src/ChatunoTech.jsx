@@ -735,6 +735,7 @@ const resumeSession = () => {
       }));
       
       // 🚨 סיום ועדכון Batch
+      const finalMatchesUsed = matchesUsedInSession + 1
       await completeSession(finalMatchesUsed);
       
       setTimeout(() => {
@@ -767,7 +768,6 @@ const resumeSession = () => {
         setCurrentGuestIndex(newIndex);
       } else {
         // סיום - עדכון Batch
-        const finalMatchesUsed = matchesUsedInSession + 1;
         await completeSession(finalMatchesUsed); // שולח את הערך הנכון
         setCurrentScreen('successScreen');
       }
