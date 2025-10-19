@@ -17,11 +17,11 @@ __all__ = [
     
     # פונקציות בדיקה
     'validate_dataframes',
-    'is_user_authorized',
     
     # פונקציות ייצוא
     'to_buf',
-    'export_with_original_structure',  # 🔥 חדש
+    'export_with_original_structure',  
+    'check_existing_phone_column',
     'create_contacts_template',
     'create_guests_template',
     
@@ -51,23 +51,6 @@ import pandas as pd
 import unidecode
 from rapidfuzz import fuzz, distance
 
-import pickle
-import base64
-from datetime import datetime
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaInMemoryUpload
-
-# Google Sheets via ADC (Cloud Run Service Account)
-try:
-    import google.auth
-    import gspread
-    GOOGLE_AVAILABLE = True
-except ImportError:
-    GOOGLE_AVAILABLE = False
-    logging.warning("Google auth not available - using local files only")
-    
-DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_PARENT_FOLDER_ID', None)
-
 # ───────── קבועים ─────────
 NAME_COL          = "שם מלא"
 PHONE_COL         = "מספר פלאפון"
@@ -87,20 +70,6 @@ FIELD_PRIORITY = {
     'כמות מוזמנים': ['כמות', 'quantity', 'מוזמנים', 'אורחים', 'guests', 'כמות מוזמנים']
 }
 
-# הרשאות/Scopes לקריאה בלבד
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
-    "https://www.googleapis.com/auth/drive.readonly",
-]
-
-# ENV לגיליון המורשים
-SPREADSHEET_ID_ENV  = "SPREADSHEET_ID"
-WORKSHEET_TITLE_ENV = "WORKSHEET_TITLE"
-
-# גיבוי מקומי
-LOCAL_ALLOWED_FILE  = "allowed_users.xlsx"
-LOCAL_PHONE_COLS    = ("טלפון", "phone", "מספר", "מספר פלאפון", "פלאפון")
-
 # 🔥 מילות יחס/קשר (ignored לגמרי)
 GENERIC_TOKENS: Set[str] = {"של", "ה", "בן", "בת", "משפחת", "אחי", "אחות", "דוד", "דודה"}
 
@@ -111,204 +80,6 @@ SUFFIX_TOKENS: Set[str] = {
 }
 
 # ───────── עזרים בסיסיים ─────────
-
-def save_session_to_drive(gc, phone: str, session_data: dict) -> str:
-    """
-    שומר את המצב של המשתמש ב-Google Drive
-    """
-    try:
-        # בניית שירות Drive
-        drive_service = build('drive', 'v3', credentials=gc.auth)
-        
-        folder_name = f"sessions_{phone}"
-        
-        # חיפוש תיקייה קיימת
-        if DRIVE_PARENT_FOLDER_ID:
-            # חפש בתוך התיקייה הראשית
-            query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        else:
-            # חפש בכל ה-Drive
-            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        
-        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
-        folders = results.get('files', [])
-        
-        if folders:
-            folder_id = folders[0]['id']
-        else:
-            # יצירת תיקייה חדשה
-            folder_metadata = {
-                'name': folder_name,
-                'mimeType': 'application/vnd.google-apps.folder'
-            }
-            # אם יש תיקייה ראשית, הוסף אותה כ-parent
-            if DRIVE_PARENT_FOLDER_ID:
-                folder_metadata['parents'] = [DRIVE_PARENT_FOLDER_ID]
-            
-            folder = drive_service.files().create(body=folder_metadata, fields='id').execute()
-            folder_id = folder.get('id')
-        
-        # שמירת הסשן
-        session_filename = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
-        
-        # המרה ל-pickle
-        pickled_data = pickle.dumps(session_data)
-        
-        # יצירת קובץ ב-Drive
-        file_metadata = {
-            'name': session_filename,
-            'parents': [folder_id]
-        }
-        
-        media = MediaInMemoryUpload(pickled_data, mimetype='application/octet-stream')
-        file = drive_service.files().create(
-            body=file_metadata, 
-            media_body=media, 
-            fields='id'
-        ).execute()
-        
-        logging.info(f"✅ Session saved for {phone}: {file.get('id')}")
-        return file.get('id')
-        
-    except Exception as e:
-        logging.error(f"Failed to save session to Drive: {e}")
-        return None
-
-
-def load_session_from_drive(gc, phone: str) -> dict:
-    """
-    טוען את המצב האחרון של המשתמש מ-Google Drive
-    """
-    try:
-        drive_service = build('drive', 'v3', credentials=gc.auth)
-        
-        folder_name = f"sessions_{phone}"
-        
-        # חיפוש התיקייה
-        if DRIVE_PARENT_FOLDER_ID:
-            query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        else:
-            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        
-        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
-        folders = results.get('files', [])
-        
-        if not folders:
-            return None
-            
-        folder_id = folders[0]['id']
-        
-        # חיפוש הקובץ האחרון
-        query = f"'{folder_id}' in parents and trashed=false"
-        results = drive_service.files().list(
-            q=query,
-            orderBy='createdTime desc',
-            pageSize=1,
-            fields="files(id, name, createdTime)"
-        ).execute()
-        
-        files = results.get('files', [])
-        if not files:
-            return None
-            
-        # הורדת הקובץ
-        file_id = files[0]['id']
-        request = drive_service.files().get_media(fileId=file_id)
-        content = request.execute()
-        
-        # פענוח
-        session_data = pickle.loads(content)
-        logging.info(f"✅ Session loaded for {phone}")
-        return session_data
-        
-    except Exception as e:
-        logging.error(f"Failed to load session from Drive: {e}")
-        return None
-
-
-def save_files_to_drive(gc, phone: str, guests_file, contacts_file) -> dict:
-    """
-    שומר את הקבצים המקוריים ב-Drive
-    """
-    try:
-        drive_service = build('drive', 'v3', credentials=gc.auth)
-        
-        folder_name = f"files_{phone}"
-        
-        # בדיקה אם תיקייה קיימת
-        if DRIVE_PARENT_FOLDER_ID:
-            query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        else:
-            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        
-        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
-        folders = results.get('files', [])
-        
-        if folders:
-            folder_id = folders[0]['id']
-        else:
-            # יצירת תיקייה חדשה
-            folder_metadata = {
-                'name': folder_name,
-                'mimeType': 'application/vnd.google-apps.folder'
-            }
-            if DRIVE_PARENT_FOLDER_ID:
-                folder_metadata['parents'] = [DRIVE_PARENT_FOLDER_ID]
-            
-            folder = drive_service.files().create(body=folder_metadata, fields='id').execute()
-            folder_id = folder.get('id')
-        
-        saved_files = {}
-        
-        # שמירת קובץ מוזמנים
-        if guests_file:
-            guests_content = guests_file.read()
-            guests_file.seek(0)
-            
-            file_metadata = {
-                'name': f"guests_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                'parents': [folder_id]
-            }
-            media = MediaInMemoryUpload(
-                guests_content, 
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-            file = drive_service.files().create(
-                body=file_metadata, 
-                media_body=media, 
-                fields='id'
-            ).execute()
-            saved_files['guests_id'] = file.get('id')
-            logging.info(f"✅ Guests file saved: {file.get('id')}")
-        
-        # שמירת קובץ אנשי קשר
-        if contacts_file and contacts_file != 'mobile_contacts':
-            contacts_content = contacts_file.read()
-            contacts_file.seek(0)
-            
-            file_metadata = {
-                'name': f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                'parents': [folder_id]
-            }
-            media = MediaInMemoryUpload(
-                contacts_content, 
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-            file = drive_service.files().create(
-                body=file_metadata, 
-                media_body=media, 
-                fields='id'
-            ).execute()
-            saved_files['contacts_id'] = file.get('id')
-            logging.info(f"✅ Contacts file saved: {file.get('id')}")
-            
-        return saved_files
-        
-    except Exception as e:
-        logging.error(f"Failed to save files to Drive: {e}")
-        return {}
-    
-    
 def only_digits(s: str) -> str:
     """מחזיר רק ספרות מהמחרוזת"""
     return re.sub(r"\D+", "", s or "")
@@ -466,15 +237,11 @@ def _resolve_full_name_series(df: pd.DataFrame) -> pd.Series:
 def load_excel_flexible(file) -> pd.DataFrame:
     """טעינת קובץ עם זיהוי אוטומטי"""
     try:
-        print(f"📁 Reading file: {getattr(file, 'filename', 'unknown')}")
-        
-        if hasattr(file, "filename") and str(file.filename).lower().endswith(".csv"):
+        # הקובץ יכול להיות BytesIO או קובץ רגיל
+        if isinstance(file, BytesIO) or (hasattr(file, "filename") and str(file.filename).lower().endswith(".csv")):
             df = pd.read_csv(file, encoding='utf-8')
         else:
             df = pd.read_excel(file)
-        
-        print(f"📊 Shape: {df.shape}")
-        print(f"📋 Columns: {list(df.columns)}")
         
         df.columns = [str(col).strip() for col in df.columns]
         df = df.dropna(how='all')
@@ -482,6 +249,7 @@ def load_excel_flexible(file) -> pd.DataFrame:
         if len(df) == 0:
             raise Exception("הקובץ ריק")
         
+        # ... (שאר לוגיקת טעינת קובץ האקסל נשארת זהה)
         is_contacts_file = (
             len(df.columns) >= 3 and 
             df.iloc[:, 0].astype(str).str.contains(r'972\d{9}').any()
@@ -490,11 +258,9 @@ def load_excel_flexible(file) -> pd.DataFrame:
         standard_df = pd.DataFrame()
         
         if is_contacts_file:
-            print("📞 Contacts file")
             standard_df[PHONE_COL] = df.iloc[:, 0].astype(str).str.strip()
             standard_df[NAME_COL] = df.iloc[:, 2].astype(str).str.strip()
         else:
-            print("👰 Guests file")
             column_mapping = smart_column_mapping(df)
             relevant_fields = identify_relevant_fields(df)
             
@@ -534,17 +300,14 @@ def load_excel_flexible(file) -> pd.DataFrame:
         if len(standard_df) == 0:
             raise Exception("לא נמצאו רשומות תקינות")
         
-        print(f"✅ Final shape: {standard_df.shape}")
         return standard_df
         
     except Exception as e:
-        print(f"❌ Error: {e}")
         raise Exception(f"לא ניתן לקרוא: {str(e)}")
 
 def load_mobile_contacts(contacts_data: List[Dict]) -> pd.DataFrame:
     """טעינת אנשי קשר ממובייל"""
     try:
-        print(f"📱 Loading {len(contacts_data)} contacts")
         df = pd.DataFrame(contacts_data)
         
         if 'name' not in df.columns or 'phone' not in df.columns:
@@ -566,11 +329,9 @@ def load_mobile_contacts(contacts_data: List[Dict]) -> pd.DataFrame:
         if len(standard_df) == 0:
             raise Exception("לא נמצאו אנשי קשר תקינים")
         
-        print(f"✅ Processed: {len(standard_df)}")
         return standard_df
         
     except Exception as e:
-        print(f"❌ Error: {e}")
         raise Exception(f"לא ניתן לעבד: {str(e)}")
 
 def load_excel(file) -> pd.DataFrame:
@@ -788,17 +549,9 @@ def validate_dataframes(guests_df: pd.DataFrame, contacts_df: pd.DataFrame) -> t
 
 # 🔥 בדיקה אם יש עמודת טלפון קיימת
 def check_existing_phone_column(file) -> dict:
-    """
-    🔥 בודק אם יש עמודת טלפון בקובץ
-    מחזיר: {
-        'has_phone_column': bool,
-        'phone_column_name': str or None,
-        'filled_count': int,
-        'empty_count': int
-    }
-    """
+    """בודק אם יש עמודת טלפון בקובץ"""
     try:
-        if hasattr(file, "filename") and str(file.filename).lower().endswith(".csv"):
+        if isinstance(file, BytesIO) or (hasattr(file, "filename") and str(file.filename).lower().endswith(".csv")):
             df = pd.read_csv(file, encoding='utf-8')
         else:
             df = pd.read_excel(file)
@@ -831,7 +584,6 @@ def check_existing_phone_column(file) -> dict:
             }
             
     except Exception as e:
-        print(f"❌ Check phone column error: {e}")
         return {
             'has_phone_column': False,
             'phone_column_name': None,
@@ -842,79 +594,48 @@ def check_existing_phone_column(file) -> dict:
 
 # 🔥 ייצוא חכם - כל הקובץ המקורי
 def export_with_original_structure(original_file, selected_contacts: dict, skip_filled: bool = False) -> BytesIO:
-    """
-    🔥 ייצוא חכם:
-    - מוריד את **כל הקובץ המקורי** (לא רק מה שעובד)
-    - אם יש עמודת טלפון קיימת → ממלא אותה
-    - אם אין → מוסיף עמודה חדשה בסוף
-    - skip_filled: אם True, לא ממלא שורות שיש להן כבר מספר
-    """
+    """ייצוא חכם: מוריד את כל הקובץ המקורי וממלא את מספרי הטלפון."""
     try:
-        # קרא את כל הקובץ המקורי
-        if hasattr(original_file, "filename") and str(original_file.filename).lower().endswith(".csv"):
+        if isinstance(original_file, BytesIO) or (hasattr(original_file, "filename") and str(original_file.filename).lower().endswith(".csv")):
             df = pd.read_csv(original_file, encoding='utf-8')
         else:
             df = pd.read_excel(original_file)
         
         df.columns = [str(col).strip() for col in df.columns]
         
-        print(f"📊 Original file has {len(df)} rows")
-        
-        # זהה עמודת שם
         name_series = _resolve_full_name_series(df)
         
-        # חפש עמודת טלפון קיימת
         column_mapping = smart_column_mapping(df)
         phone_cols = [col for col, type_val in column_mapping.items() if type_val == 'phone']
         
         if phone_cols:
-            # יש עמודת טלפון - מלא אותה
             phone_col_name = phone_cols[0]
-            print(f"📞 Found existing phone column: {phone_col_name}")
         else:
-            # אין עמודת טלפון - צור חדשה
             phone_col_name = "מספר פלאפון"
             df[phone_col_name] = ""
-            print(f"➕ Created new phone column: {phone_col_name}")
-        
-        # 🔥 מלא את עמודת הטלפון לכל השורות
-        filled_count = 0
-        skipped_count = 0
         
         for idx, guest_name in enumerate(name_series):
-            # בדוק אם יש כבר מספר בשורה הזו
             current_phone = str(df.at[idx, phone_col_name]).strip()
             has_existing_phone = current_phone and current_phone != '' and current_phone.lower() != 'nan'
             
-            # אם skip_filled=True ויש מספר - דלג
             if skip_filled and has_existing_phone:
-                skipped_count += 1
                 continue
             
-            # אם יש התאמה - מלא
             if guest_name in selected_contacts:
                 contact = selected_contacts[guest_name]
                 if not contact.get('isNotFound'):
                     phone = contact.get('phone', '')
                     if phone:
                         df.at[idx, phone_col_name] = phone
-                        filled_count += 1
         
-        print(f"✅ Filled {filled_count} phones")
-        if skip_filled:
-            print(f"⏭️ Skipped {skipped_count} rows (already had phone)")
-        
-        # ייצא לאקסל
         buf = BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as w:
             df.to_excel(w, index=False, sheet_name="תוצאות")
         buf.seek(0)
         
-        print(f"📥 Exported all {len(df)} rows from original file")
         return buf
         
     except Exception as e:
-        print(f"❌ Export error: {e}")
         raise Exception(f"שגיאה בייצוא: {str(e)}")
 
 def to_buf(df: pd.DataFrame) -> BytesIO:
@@ -973,86 +694,3 @@ def create_guests_template() -> pd.DataFrame:
         'קבוצה': ['משפחה', 'חברות', 'עבודה', 'משפחה']
     })
     return template
-
-# ───────── הרשאות ─────────
-def _pick_worksheet(sh):
-    """מאתר לשונית לפי שם"""
-    wanted = os.getenv(WORKSHEET_TITLE_ENV)
-    if wanted:
-        w = wanted.strip().lower()
-        for ws in sh.worksheets():
-            if (ws.title or "").strip().lower() == w:
-                return ws
-    return sh.get_worksheet(0)
-
-def _find_phone_col(header: list[str]) -> int:
-    """אינדקס עמודת הטלפון"""
-    header_lower = [str(h).strip().lower() for h in header]
-    lookup = tuple(x.lower() for x in ("טלפון", "מספר פלאפון", "פלאפון", "phone", "מספר"))
-    for i, h in enumerate(header_lower):
-        if h in lookup:
-            return i
-    return 1
-
-def _load_allowed_from_sheets() -> set[str] | None:
-    """טוען טלפונים מורשים מ-Sheets"""
-    if not GOOGLE_AVAILABLE:
-        logging.info("Google Sheets not available")
-        return None
-        
-    sheet_id = os.getenv(SPREADSHEET_ID_ENV)
-    if not sheet_id:
-        return None
-    try:
-        creds, _ = google.auth.default(scopes=SCOPES)
-        gc = gspread.authorize(creds)
-        sh = gc.open_by_key(sheet_id)
-        ws = _pick_worksheet(sh)
-
-        rows = ws.get_all_values() or []
-        if len(rows) < 2:
-            logging.info("Allowed sheet is empty")
-            return set()
-
-        header = [str(c).strip() for c in rows[0]]
-        phone_idx = _find_phone_col(header)
-
-        allowed = {
-            only_digits(r[phone_idx])
-            for r in rows[1:]
-            if len(r) > phone_idx and only_digits(r[phone_idx])
-        }
-
-        if allowed:
-            logging.info(f"Loaded {len(allowed)} allowed phones from Sheets")
-        return allowed
-    except Exception:
-        logging.exception("Failed to load from Sheets")
-        return None
-
-def _load_allowed_from_excel() -> set[str]:
-    """גיבוי: טוען מקובץ מקומי"""
-    if not os.path.exists(LOCAL_ALLOWED_FILE):
-        return set()
-    try:
-        df = pd.read_excel(LOCAL_ALLOWED_FILE, dtype=str)
-    except Exception:
-        logging.exception("Failed to read local Excel")
-        return set()
-
-    cols = [c for c in df.columns if any(k in str(c).lower() for k in LOCAL_PHONE_COLS)]
-    if not cols:
-        return set()
-
-    phone_col = cols[0]
-    allowed = {only_digits(str(v)) for v in df[phone_col] if only_digits(str(v))}
-    logging.info(f"Loaded {len(allowed)} from local Excel")
-    return allowed
-
-def is_user_authorized(phone: str) -> bool:
-    """בדיקת הרשאה"""
-    clean = only_digits(phone)
-    allowed = _load_allowed_from_sheets()
-    if allowed is None:
-        allowed = _load_allowed_from_excel()
-    return clean in allowed
