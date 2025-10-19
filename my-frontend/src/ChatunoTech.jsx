@@ -337,6 +337,178 @@ const ChatunoTech = () => {
     }
   };
 
+  // פונקציה לשמירת סשן אוטומטית
+const autoSaveSession = async () => {
+  if (!currentUser.phone || matchingResults.length === 0) return;
+  
+  try {
+    const sessionData = {
+      phone: currentUser.phone,
+      matching_results: matchingResults,
+      selected_contacts: selectedContacts,
+      current_guest_index: currentGuestIndex,
+      file_hash: fileHash,
+      filters: filters,
+      skip_filled_phones: skipFilledPhones,
+      auto_selected_count: autoSelectedCount,
+      perfect_matches_count: perfectMatchesCount,
+      matches_used_in_session: matchesUsedInSession
+    };
+    
+    await fetch(`${API_BASE_URL}/save-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sessionData)
+    });
+    
+    console.log('✅ Session auto-saved');
+  } catch (error) {
+    console.error('Failed to save session:', error);
+  }
+};
+
+// הפעלת שמירה אוטומטית כל דקה
+useEffect(() => {
+  if (currentScreen === 'matchingScreen' && matchingResults.length > 0) {
+    const interval = setInterval(autoSaveSession, 60000); // כל דקה
+    return () => clearInterval(interval);
+  }
+}, [currentScreen, matchingResults, selectedContacts, currentGuestIndex]);
+
+// פונקציה לבדיקה וטעינת סשן קיים
+const checkExistingSession = async () => {
+  if (!currentUser.phone) return;
+  
+  try {
+    setIsLoading(true);
+    const response = await fetch(`${API_BASE_URL}/load-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: currentUser.phone })
+    });
+    
+    const data = await response.json();
+    
+    if (data.status === 'success' && data.session_data) {
+      // הצגת דיאלוג למשתמש
+      setShowResumeDialog(true);
+      setSavedSession(data.session_data);
+    }
+  } catch (error) {
+    console.error('Failed to check session:', error);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+// קריאה לבדיקת סשן אחרי התחברות
+useEffect(() => {
+  if (currentScreen === 'uploadScreen' && currentUser.phone) {
+    checkExistingSession();
+  }
+}, [currentScreen, currentUser.phone]);
+
+// קומפוננטה לדיאלוג המשך עבודה
+const ResumeSessionDialog = ({ savedSession, onResume, onNewSession }) => {
+  if (!savedSession) return null;
+  
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0,0,0,0.7)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 9999,
+      padding: '20px'
+    }}>
+      <div style={{
+        background: 'white',
+        borderRadius: '20px',
+        padding: '30px',
+        maxWidth: '500px',
+        textAlign: 'center'
+      }}>
+        <h2>🔄 נמצאה עבודה שמורה!</h2>
+        
+        <div style={{
+          background: '#f1f8ff',
+          padding: '15px',
+          borderRadius: '10px',
+          margin: '20px 0',
+          textAlign: 'right'
+        }}>
+          <div>📅 תאריך: {new Date(savedSession.timestamp).toLocaleDateString('he-IL')}</div>
+          <div>📊 התקדמות: {savedSession.current_progress}</div>
+          <div>✅ התאמות שנעשו: {Object.keys(savedSession.selected_contacts || {}).length}</div>
+        </div>
+        
+        <p style={{ fontSize: '1.1rem', marginBottom: '25px' }}>
+          האם להמשיך מאיפה שהפסקת?
+        </p>
+        
+        <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+          <button 
+            className="btn btn-primary"
+            onClick={onResume}
+          >
+            ✅ המשך עבודה
+          </button>
+          
+          <button 
+            className="btn btn-secondary"
+            onClick={onNewSession}
+          >
+            🆕 התחל מחדש
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// הוסף state חדש
+const [showResumeDialog, setShowResumeDialog] = useState(false);
+const [savedSession, setSavedSession] = useState(null);
+
+// פונקציה להמשך מסשן שמור
+const resumeSession = () => {
+  if (!savedSession) return;
+  
+  // טעינת כל הנתונים מהסשן השמור
+  setMatchingResults(savedSession.matching_results || []);
+  setSelectedContacts(savedSession.selected_contacts || {});
+  setCurrentGuestIndex(savedSession.current_guest_index || 0);
+  setFileHash(savedSession.file_hash || '');
+  setFilters(savedSession.filters || {});
+  setSkipFilledPhones(savedSession.skip_filled_phones || false);
+  setAutoSelectedCount(savedSession.auto_selected_count || 0);
+  setPerfectMatchesCount(savedSession.perfect_matches_count || 0);
+  setMatchesUsedInSession(savedSession.matches_used_in_session || 0);
+  
+  // מעבר למסך ההתאמות
+  setCurrentScreen('matchingScreen');
+  setShowResumeDialog(false);
+  showMessage('✅ העבודה נטענה בהצלחה!', 'success');
+};
+
+// הוסף לרנדר הראשי
+{showResumeDialog && (
+  <ResumeSessionDialog
+    savedSession={savedSession}
+    onResume={resumeSession}
+    onNewSession={() => {
+      setShowResumeDialog(false);
+      setSavedSession(null);
+    }}
+  />
+)}
+
+
   const extractAllContacts = (results) => {
     const allContacts = new Map();
     

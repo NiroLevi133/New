@@ -51,6 +51,10 @@ import pandas as pd
 import unidecode
 from rapidfuzz import fuzz, distance
 
+import pickle
+import base64
+from datetime import datetime
+
 # Google Sheets via ADC (Cloud Run Service Account)
 try:
     import google.auth
@@ -103,6 +107,150 @@ SUFFIX_TOKENS: Set[str] = {
 }
 
 # ───────── עזרים בסיסיים ─────────
+
+def save_session_to_drive(gc, phone: str, session_data: dict) -> str:
+    """
+    שומר את המצב של המשתמש ב-Google Drive
+    """
+    try:
+        # יצירת/מציאת תיקייה למשתמש
+        folder_name = f"guest_matcher_sessions_{phone}"
+        
+        # חיפוש תיקייה קיימת
+        file_list = gc.list_spreadsheet_files()
+        folder_id = None
+        
+        for file in file_list:
+            if file['name'] == folder_name and file['mimeType'] == 'application/vnd.google-apps.folder':
+                folder_id = file['id']
+                break
+        
+        # אם אין תיקייה - יצירה
+        if not folder_id:
+            folder_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            folder = gc.create(folder_metadata)
+            folder_id = folder['id']
+        
+        # שמירת הסשן
+        session_filename = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
+        
+        # המרה ל-pickle ואז ל-base64
+        pickled_data = pickle.dumps(session_data)
+        encoded_data = base64.b64encode(pickled_data).decode('utf-8')
+        
+        # יצירת קובץ ב-Drive
+        file_metadata = {
+            'name': session_filename,
+            'parents': [folder_id],
+            'mimeType': 'application/octet-stream'
+        }
+        
+        # שמירה
+        media = MediaInMemoryUpload(pickled_data, mimetype='application/octet-stream')
+        file = gc.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        
+        return file.get('id')
+        
+    except Exception as e:
+        logging.error(f"Failed to save session to Drive: {e}")
+        return None
+
+def load_session_from_drive(gc, phone: str) -> dict:
+    """
+    טוען את המצב האחרון של המשתמש מ-Google Drive
+    """
+    try:
+        folder_name = f"guest_matcher_sessions_{phone}"
+        
+        # חיפוש התיקייה
+        query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
+        results = gc.files().list(q=query, fields="files(id, name)").execute()
+        folders = results.get('files', [])
+        
+        if not folders:
+            return None
+            
+        folder_id = folders[0]['id']
+        
+        # חיפוש הקובץ האחרון
+        query = f"'{folder_id}' in parents and trashed=false"
+        results = gc.files().list(
+            q=query,
+            orderBy='createdTime desc',
+            pageSize=1,
+            fields="files(id, name, createdTime)"
+        ).execute()
+        
+        files = results.get('files', [])
+        if not files:
+            return None
+            
+        # הורדת הקובץ
+        file_id = files[0]['id']
+        request = gc.files().get_media(fileId=file_id)
+        content = request.execute()
+        
+        # פענוח
+        session_data = pickle.loads(content)
+        return session_data
+        
+    except Exception as e:
+        logging.error(f"Failed to load session from Drive: {e}")
+        return None
+
+def save_files_to_drive(gc, phone: str, guests_file, contacts_file) -> dict:
+    """
+    שומר את הקבצים המקוריים ב-Drive
+    """
+    try:
+        folder_name = f"guest_files_{phone}"
+        
+        # יצירת תיקייה
+        folder_metadata = {
+            'name': folder_name,
+            'mimeType': 'application/vnd.google-apps.folder'
+        }
+        folder = gc.create(folder_metadata)
+        folder_id = folder['id']
+        
+        saved_files = {}
+        
+        # שמירת קובץ מוזמנים
+        if guests_file:
+            guests_content = guests_file.read()
+            guests_file.seek(0)
+            
+            file_metadata = {
+                'name': f"guests_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                'parents': [folder_id]
+            }
+            media = MediaInMemoryUpload(guests_content, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            file = gc.files().create(body=file_metadata, media_body=media, fields='id').execute()
+            saved_files['guests_id'] = file.get('id')
+        
+        # שמירת קובץ אנשי קשר
+        if contacts_file and contacts_file != 'mobile_contacts':
+            contacts_content = contacts_file.read()
+            contacts_file.seek(0)
+            
+            file_metadata = {
+                'name': f"contacts_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                'parents': [folder_id]
+            }
+            media = MediaInMemoryUpload(contacts_content, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            file = gc.files().create(body=file_metadata, media_body=media, fields='id').execute()
+            saved_files['contacts_id'] = file.get('id')
+            
+        return saved_files
+        
+    except Exception as e:
+        logging.error(f"Failed to save files to Drive: {e}")
+        return {}
+    
+    
 def only_digits(s: str) -> str:
     """מחזיר רק ספרות מהמחרוזת"""
     return re.sub(r"\D+", "", s or "")

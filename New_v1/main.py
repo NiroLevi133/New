@@ -3,7 +3,6 @@
 ==============================================
     Guest Matcher API v5.1 - AUTH REFACTOR
 ==============================================
-🔥 Batch processing - עדכון רק בסוף
 """
 
 import logging
@@ -12,7 +11,11 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import traceback
 import gc
+from apscheduler.schedulers.background import BackgroundScheduler
 import json
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaInMemoryUpload
+import pickle
 from pydantic import BaseModel
 
 # ============================================================
@@ -146,6 +149,29 @@ def get_google_client():
         logger.error(f"❌ Google Sheets failed: {e}")
         raise
 
+# פונקציה לניקוי קבצים ישנים
+async def cleanup_old_sessions():
+    """מנקה סשנים וקבצים ישנים מ-30 יום"""
+    try:
+        gc = get_google_client()
+        cutoff_date = (datetime.now() - timedelta(days=30)).isoformat()
+        
+        # חיפוש וניקוי קבצים ישנים
+        query = f"modifiedTime < '{cutoff_date}' and name contains 'guest_matcher_sessions'"
+        results = gc.files().list(q=query, fields="files(id, name)").execute()
+        
+        for file in results.get('files', []):
+            gc.files().delete(fileId=file['id']).execute()
+            logger.info(f"Deleted old session: {file['name']}")
+            
+    except Exception as e:
+        logger.error(f"Cleanup error: {e}")
+
+# הפעלת תזמון
+scheduler = BackgroundScheduler()
+scheduler.add_job(cleanup_old_sessions, 'interval', days=1)
+scheduler.start()
+
 # Helper to get worksheet (no change here)
 async def get_worksheet():
     try:
@@ -154,11 +180,14 @@ async def get_worksheet():
         try:
             ws = sh.worksheet(GOOGLE_SHEET_NAME)
         except:
-            ws = sh.add_worksheet(title=GOOGLE_SHEET_NAME, rows="1000", cols="10")
-            # 🚨 Updated Headers
-            headers = ['id', 'full_name', 'phone', 'join_date', 'last_activity', 
-                      'daily_matches_used', 'current_file_hash', 'current_progress', 'is_premium']
-            ws.update('A1:I1', [headers])
+            ws = sh.add_worksheet(title=GOOGLE_SHEET_NAME, rows="1000", cols="12")
+            # הוסף עמודות נוספות לשמירת מצב
+            headers = [
+                'id', 'full_name', 'phone', 'join_date', 'last_activity', 
+                'daily_matches_used', 'current_file_hash', 'current_progress', 
+                'is_premium', 'last_session_id', 'files_saved', 'session_data'
+            ]
+            ws.update('A1:L1', [headers])
         return ws
     except Exception as e:
         logger.error(f"❌ Worksheet error: {e}")
@@ -624,6 +653,120 @@ async def verify_code_endpoint(data: VerifyCodeRequest):
     return {"status": "FAILED"}
 
 
+# Endpoint לשמירת סשן
+@app.post("/save-session")
+async def save_session_endpoint(data: dict):
+    """שומר את מצב הסשן של המשתמש"""
+    phone = data.get("phone")
+    if not phone:
+        raise HTTPException(400, "Phone required")
+    
+    try:
+        gc = get_google_client()
+        
+        # איסוף כל הנתונים לשמירה
+        session_data = {
+            "phone": phone,
+            "timestamp": datetime.now().isoformat(),
+            "matching_results": data.get("matching_results", []),
+            "selected_contacts": data.get("selected_contacts", {}),
+            "current_guest_index": data.get("current_guest_index", 0),
+            "file_hash": data.get("file_hash", ""),
+            "filters": data.get("filters", {}),
+            "skip_filled_phones": data.get("skip_filled_phones", False),
+            "auto_selected_count": data.get("auto_selected_count", 0),
+            "perfect_matches_count": data.get("perfect_matches_count", 0),
+            "matches_used_in_session": data.get("matches_used_in_session", 0)
+        }
+        
+        # שמירת הסשן
+        session_id = save_session_to_drive(gc, phone, session_data)
+        
+        # עדכון ב-Google Sheets
+        await update_user_sheet(
+            phone,
+            current_file_hash=data.get("file_hash", ""),
+            current_progress=f"{data.get('current_guest_index', 0)}/{len(data.get('matching_results', []))}"
+        )
+        
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "message": "הסשן נשמר בהצלחה"
+        }
+        
+    except Exception as e:
+        logger.error(f"Save session error: {e}")
+        raise HTTPException(500, f"Failed to save session: {str(e)}")
+
+# Endpoint לטעינת סשן
+@app.post("/load-session")
+async def load_session_endpoint(data: dict):
+    """טוען את הסשן האחרון של המשתמש"""
+    phone = data.get("phone")
+    if not phone:
+        raise HTTPException(400, "Phone required")
+    
+    try:
+        gc = get_google_client()
+        
+        # טעינת הסשן האחרון
+        session_data = load_session_from_drive(gc, phone)
+        
+        if not session_data:
+            return {
+                "status": "no_session",
+                "message": "לא נמצא סשן שמור"
+            }
+        
+        # בדיקה אם הסשן עדיין רלוונטי (פחות מ-7 ימים)
+        session_time = datetime.fromisoformat(session_data.get('timestamp', ''))
+        if (datetime.now() - session_time).days > 7:
+            return {
+                "status": "expired",
+                "message": "הסשן פג תוקף"
+            }
+        
+        return {
+            "status": "success",
+            "session_data": session_data,
+            "message": "הסשן נטען בהצלחה"
+        }
+        
+    except Exception as e:
+        logger.error(f"Load session error: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+# Endpoint לשמירת קבצים
+@app.post("/save-files")
+async def save_files_endpoint(
+    guests_file: UploadFile = File(...),
+    contacts_file: UploadFile = File(None),
+    phone: str = None
+):
+    """שומר את הקבצים ב-Google Drive"""
+    if not phone:
+        raise HTTPException(400, "Phone required")
+    
+    try:
+        gc = get_google_client()
+        
+        # שמירת הקבצים
+        saved = save_files_to_drive(gc, phone, guests_file, contacts_file)
+        
+        return {
+            "status": "success",
+            "saved_files": saved,
+            "message": "הקבצים נשמרו בהצלחה"
+        }
+        
+    except Exception as e:
+        logger.error(f"Save files error: {e}")
+        raise HTTPException(500, f"Failed to save files: {str(e)}")
+    
 @app.post("/save-full-name")
 async def save_full_name_endpoint(data: SaveFullNameRequest):
     """🔥 NEW: Save full name for first-time users (B)"""
@@ -948,6 +1091,10 @@ async def download_contacts_template():
         headers={"Content-Disposition": "attachment; filename=contacts_template.xlsx"}
     )
 
+@app.on_event("shutdown")
+def shutdown_event():
+    scheduler.shutdown()
+    
 @app.get("/download-guests-template")
 async def download_guests_template():
     """Download guests template"""
