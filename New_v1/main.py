@@ -63,6 +63,9 @@ try:
         export_with_original_structure,
         check_existing_phone_column,
         create_contacts_template,
+        save_session_to_drive,
+        load_session_from_drive,
+        save_files_to_drive,
         create_guests_template,
         NAME_COL,
         PHONE_COL,
@@ -101,6 +104,7 @@ GREEN_API_TOKEN = os.environ.get('GREEN_API_TOKEN')
 GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
 GOOGLE_SHEET_NAME = os.environ.get('GOOGLE_SHEET_NAME', 'users1')
 GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_PARENT_FOLDER_ID')
 
 GREEN_API_URL = None
 if GREEN_API_ID and GREEN_API_TOKEN:
