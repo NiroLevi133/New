@@ -535,6 +535,7 @@ const ChatunoTech = () => {
 
   // Next Guest - עם בדיקת מגבלה
   const nextGuest = async () => {
+    // 🔥 מניעת לחיצות כפולות
     if (isProcessingRef.current) {
       console.log('⚠️ Already processing');
       return;
@@ -546,22 +547,30 @@ const ChatunoTech = () => {
       showMessage('❌ אנא בחר מועמד', 'error');
       return;
     }
+    
+    // 1. 🔥 בדיקה אם זו ההתאמה האחרונה (30)
+    // אם נותרו 1 או פחות וזה לא פרימיום.
+    const isFinalMatch = !currentUser.isPro && currentUser.remainingMatches <= 1;
 
-    if (!currentUser.isPro && currentUser.remainingMatches <= 1) {
+    if (isFinalMatch) {
       isProcessingRef.current = true;
       setIsLoading(true);
       
-      showMessage('⏰ זו ההתאמה האחרונה שלך היום!', 'warning');
+      // זו ההתאמה האחרונה!
+      showMessage('⏰ זו ההתאמה האחרונה שלך היום! מעביר לייצוא...', 'warning');
       
+      // עדכון מקומי לפני ה-Batch
       setMatchesUsedInSession(prev => prev + 1);
       setCurrentUser(prev => ({
         ...prev,
-        remainingMatches: 0
+        remainingMatches: 0 // מגיע ל-0
       }));
-
+      
+      // 🚨 סיום ועדכון Batch
       await completeSession();
       
       setTimeout(() => {
+        // לאחר עדכון ה-DB, עוברים ישר למסך ה-Limit
         setCurrentScreen('limitReached');
         isProcessingRef.current = false;
         setIsLoading(false);
@@ -570,10 +579,12 @@ const ChatunoTech = () => {
       return;
     }
 
+    // 2. 🔥 מעבר רגיל למוזמן הבא (אם נותרו יותר מ-1)
     isProcessingRef.current = true;
     setIsLoading(true);
 
     try {
+      // עדכון מקומי
       if (!currentUser.isPro) {
         setMatchesUsedInSession(prev => prev + 1);
         setCurrentUser(prev => ({
@@ -582,10 +593,12 @@ const ChatunoTech = () => {
         }));
       }
 
+      // מעבר למוזמן הבא
       const newIndex = currentGuestIndex + 1;
       if (newIndex < matchingResults.length) {
         setCurrentGuestIndex(newIndex);
       } else {
+        // סיום - עדכון Batch
         await completeSession();
         setCurrentScreen('successScreen');
       }
