@@ -735,7 +735,7 @@ const resumeSession = () => {
       }));
       
       // 🚨 סיום ועדכון Batch
-      await completeSession();
+      await completeSession(finalMatchesUsed);
       
       setTimeout(() => {
         // לאחר עדכון ה-DB, עוברים ישר למסך ה-Limit
@@ -767,7 +767,8 @@ const resumeSession = () => {
         setCurrentGuestIndex(newIndex);
       } else {
         // סיום - עדכון Batch
-        await completeSession();
+        const finalMatchesUsed = matchesUsedInSession + 1;
+        await completeSession(finalMatchesUsed); // שולח את הערך הנכון
         setCurrentScreen('successScreen');
       }
       
@@ -786,8 +787,9 @@ const resumeSession = () => {
   };
 
   // Complete Session - קורא בסוף
-  const completeSession = async () => {
-    if (!currentUser.phone || currentUser.isPro) {
+  // 🔥 Complete Session - קורא בסוף
+  const completeSession = async (currentMatchesUsed) => { // מקבל את הערך המחושב
+    if (!currentUser.phone || currentUser.isPro || currentMatchesUsed === 0) {
       return;
     }
 
@@ -797,7 +799,7 @@ const resumeSession = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone: currentUser.phone,
-          matches_used: matchesUsedInSession
+          matches_used: currentMatchesUsed     // משתמש בערך שקיבל
         })
       });
       
@@ -806,7 +808,7 @@ const resumeSession = () => {
       }
       
       const data = await response.json();
-      console.log(`✅ Session completed: ${matchesUsedInSession} matches used, ${data.remaining_matches} remaining`);
+      console.log(`✅ Session completed: ${currentMatchesUsed} matches used, ${data.remaining_matches} remaining`);
       
     } catch (error) {
       console.error('❌ Complete session error:', error);
@@ -819,7 +821,7 @@ const resumeSession = () => {
       setIsLoading(true);
       showMessage('📄 מכין קובץ...', 'success');
 
-      await completeSession();
+      await completeSession(matchesUsedInSession);
 
       const response = await fetch(`${API_BASE_URL}/export-results`, {
         method: 'POST',
