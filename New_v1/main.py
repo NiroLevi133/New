@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ==============================================
-    Guest Matcher API v5.2 - DRIVE & RESUME
+    Guest Matcher API v5.1 - AUTH REFACTOR
 ==============================================
 """
 
@@ -13,17 +13,10 @@ import traceback
 import gc
 from apscheduler.schedulers.background import BackgroundScheduler
 import json
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaInMemoryUpload
 import pickle
 from pydantic import BaseModel
-
-# 🔥 DRIVE & GOOGLE IMPORTS
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
-from google.oauth2 import service_account
-from google.oauth2.service_account import Credentials
-from io import BytesIO as MediaBytesIO
-from io import BytesIO
-import gspread
 
 # ============================================================
 #                    LOGGING SETUP
@@ -34,10 +27,10 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
-logger.info("🚀 Starting Guest Matcher API v5.2 - DRIVE & RESUME...")
+logger.info("🚀 Starting Guest Matcher API v5.1 - AUTH REFACTOR...")
 
 # ============================================================
-#                    IMPORTS & LOGIC
+#                    IMPORTS
 # ============================================================
 try:
     import os
@@ -45,9 +38,11 @@ try:
     import hashlib
     import random
     import time
+    from io import BytesIO
     
     PORT = os.environ.get('PORT', '8080')
     
+    # Import BaseModels for Pydantic validation
     from fastapi import FastAPI, UploadFile, File, HTTPException, Request, BackgroundTasks
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse, JSONResponse
@@ -55,6 +50,9 @@ try:
     import requests
     
     import pandas as pd
+    
+    from google.oauth2 import service_account
+    import gspread
     
     from logic import (
         load_excel_flexible,
@@ -69,6 +67,9 @@ try:
         NAME_COL,
         PHONE_COL,
         AUTO_SELECT_TH,
+        format_phone, # נשאר
+        normalize, # נשאר
+        reason_for, # נשאר
     )
     LOGIC_AVAILABLE = True
     
@@ -88,7 +89,7 @@ except Exception as e:
 DAILY_LIMIT = 30
 MAX_FILE_SIZE = 50 * 1024 * 1024
 RATE_LIMIT_PER_MINUTE = 100
-ALLOWED_FILE_TYPES = {'.xlsx', '.xls', '.csv', '.json'} 
+ALLOWED_FILE_TYPES = {'.xlsx', '.xls', '.csv'}
 
 MASTER_CODE = os.environ.get('MASTER_CODE', '9998')
 ADMIN_CODES = {
@@ -99,14 +100,7 @@ GREEN_API_ID = os.environ.get('GREEN_API_ID')
 GREEN_API_TOKEN = os.environ.get('GREEN_API_TOKEN')
 GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID')
 GOOGLE_SHEET_NAME = os.environ.get('GOOGLE_SHEET_NAME', 'users1')
-GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')
-
-# 🔥 DRIVE CONFIGS (כפי שסופק)
-DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_PARENT_FOLDER_ID', '1z9_9cxKzR4KVEf6Mz8oLehSGTl0marlf') 
-MAX_STORAGE_DAYS = int(os.environ.get('MAX_STORAGE_DAYS', 100))
-AUTO_CLEANUP_ENABLED = os.environ.get('AUTO_CLEANUP_ENABLED', 'true').lower() == 'true'
-DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
-
+GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
 
 GREEN_API_URL = None
 if GREEN_API_ID and GREEN_API_TOKEN:
@@ -115,10 +109,8 @@ if GREEN_API_ID and GREEN_API_TOKEN:
 # 🔥 In-Memory Storage
 pending_codes: Dict[str, Dict[str, Any]] = {}
 rate_limit_tracker: Dict[str, list] = {}
-user_sessions: Dict[str, Dict[str, Any]] = {} # שומר קבצים בזיכרון לאחר טעינה/העלאה
+user_sessions: Dict[str, Dict[str, Any]] = {}
 _google_client = None
-_drive_client = None
-
 
 # Pydantic Schemas for validation
 class SendCodeRequest(BaseModel):
@@ -135,32 +127,10 @@ class SaveFullNameRequest(BaseModel):
 logger.info("✅ Configuration complete")
 
 # ============================================================
-#                    GOOGLE SERVICES FUNCTIONS
+#                    GOOGLE SHEETS FUNCTIONS (MODIFIED)
 # ============================================================
 
-def get_drive_service():
-    """Builds and returns a Google Drive service client."""
-    global _drive_client
-    if _drive_client is not None:
-        return _drive_client
-    
-    if not GOOGLE_CREDENTIALS_JSON:
-        logger.error("Drive Service: Credentials not configured")
-        return None
-    
-    try:
-        creds_info = json.loads(GOOGLE_CREDENTIALS_JSON)
-        credentials = Credentials.from_service_account_info(
-            creds_info, scopes=DRIVE_SCOPES
-        )
-        _drive_client = build('drive', 'v3', credentials=credentials)
-        logger.info("✅ Google Drive client created")
-        return _drive_client
-    except Exception as e:
-        logger.error(f"❌ Failed to build Drive service: {e}")
-        return None
-
-# Helper to get Google client (for Sheets)
+# Helper to get Google client (no change here)
 def get_google_client():
     global _google_client
     if _google_client is not None:
@@ -179,7 +149,30 @@ def get_google_client():
         logger.error(f"❌ Google Sheets failed: {e}")
         raise
 
-# 🔥 MODIFIED: הוספת עמודות לשמירת נתיבי קבצים וסשן
+# פונקציה לניקוי קבצים ישנים
+async def cleanup_old_sessions():
+    """מנקה סשנים וקבצים ישנים מ-30 יום"""
+    try:
+        gc = get_google_client()
+        cutoff_date = (datetime.now() - timedelta(days=30)).isoformat()
+        
+        # חיפוש וניקוי קבצים ישנים
+        query = f"modifiedTime < '{cutoff_date}' and name contains 'guest_matcher_sessions'"
+        results = gc.files().list(q=query, fields="files(id, name)").execute()
+        
+        for file in results.get('files', []):
+            gc.files().delete(fileId=file['id']).execute()
+            logger.info(f"Deleted old session: {file['name']}")
+            
+    except Exception as e:
+        logger.error(f"Cleanup error: {e}")
+
+# הפעלת תזמון
+scheduler = BackgroundScheduler()
+scheduler.add_job(cleanup_old_sessions, 'interval', days=1)
+scheduler.start()
+
+# Helper to get worksheet (no change here)
 async def get_worksheet():
     try:
         gc = get_google_client()
@@ -188,11 +181,11 @@ async def get_worksheet():
             ws = sh.worksheet(GOOGLE_SHEET_NAME)
         except:
             ws = sh.add_worksheet(title=GOOGLE_SHEET_NAME, rows="1000", cols="12")
-            # 🔥 עמודות חדשות לשמירת מצב וקבצים
+            # הוסף עמודות נוספות לשמירת מצב
             headers = [
                 'id', 'full_name', 'phone', 'join_date', 'last_activity', 
-                'daily_matches_used', 'guests_file_id', 'contacts_file_id', 
-                'is_premium', 'last_index', 'total_guests', 'session_data'
+                'daily_matches_used', 'current_file_hash', 'current_progress', 
+                'is_premium', 'last_session_id', 'files_saved', 'session_data'
             ]
             ws.update('A1:L1', [headers])
         return ws
@@ -200,9 +193,24 @@ async def get_worksheet():
         logger.error(f"❌ Worksheet error: {e}")
         return None
 
-# 🔥 NEW: Finds user data including row index
+# Helper to map row to dict
+def _map_row_to_user_data(row: List[str], headers: List[str]) -> Dict[str, Any]:
+    """Maps a Google Sheet row to a user data dictionary."""
+    data = dict(zip(headers, row))
+    
+    # Ensure safe parsing for numeric/boolean values
+    data['id'] = int(data.get('id') or 0)
+    data['is_premium'] = data.get('is_premium', 'FALSE').upper() == 'TRUE'
+    # daily_matches_used is in column F (index 5)
+    data['daily_matches_used'] = int(data.get('daily_matches_used') or 0) 
+    data['full_name'] = data.get('full_name', '').strip()
+    data['remaining_matches'] = DAILY_LIMIT - data['daily_matches_used']
+    
+    return data
+
+# 🔥 NEW: Finds user and prepares data (Centralized Logic)
 async def find_user_data(phone: str) -> Optional[Dict[str, Any]]:
-    """Finds user data and their row index."""
+    """Finds user data and their row index, handles date format flexibility."""
     try:
         ws = await get_worksheet()
         if not ws:
@@ -217,17 +225,9 @@ async def find_user_data(phone: str) -> Optional[Dict[str, Any]]:
 
         for i, row in enumerate(all_values[1:], 2):
             if len(row) > phone_index and row[phone_index] == phone:
-                # Map row to dict (simple implementation here for speed)
-                data = dict(zip(headers, row))
-                
-                # Ensure safe parsing for numeric/boolean values
-                data['id'] = int(data.get('id') or 0)
-                data['is_premium'] = data.get('is_premium', 'FALSE').upper() == 'TRUE'
-                data['daily_matches_used'] = int(data.get('daily_matches_used') or 0) 
-                data['full_name'] = data.get('full_name', '').strip()
-                data['remaining_matches'] = DAILY_LIMIT - data['daily_matches_used']
-                data['row_index'] = i 
-                return data
+                user_data = _map_row_to_user_data(row, headers)
+                user_data['row_index'] = i  # Actual row index in sheet (1-based)
+                return user_data
         
         return None
     except Exception as e:
@@ -258,10 +258,10 @@ async def update_user_sheet(phone: str, **kwargs):
         for key, value in kwargs.items():
             if key in headers:
                 col_index = headers.index(key)
-                
                 updates.append((f"{chr(65 + col_index)}{row_index}", value))
                 
         if updates:
+            # Using batch update for efficiency
             ws.batch_update([
                 {'range': r, 'values': [[v]]} for r, v in updates
             ])
@@ -271,125 +271,21 @@ async def update_user_sheet(phone: str, **kwargs):
         logger.error(f"❌ update_user_sheet failed: {e}")
 
 
-# 🔥 DRIVE: שמירת קבצים פיזית ב-Drive
-async def save_files_to_drive(phone: str, guests_bytes: bytes, contacts_bytes: bytes, guests_filename: str, contacts_mime: str) -> Dict[str, str]:
-    """שומר קבצי מוזמנים ואנשי קשר ל-Drive ומחזיר את המזהים שלהם."""
-    if not DRIVE_PARENT_FOLDER_ID:
-        logger.warning("DRIVE_PARENT_FOLDER_ID is not set. Skipping Drive save.")
-        return {"guests_file_id": "", "contacts_file_id": ""}
-    
-    drive_service = get_drive_service()
-    if not drive_service:
-        return {"guests_file_id": "", "contacts_file_id": ""}
-
-    def _upload(data: bytes, filename: str, mime_type: str) -> Optional[str]:
-        try:
-            file_metadata = {
-                'name': filename,
-                'parents': [DRIVE_PARENT_FOLDER_ID]
-            }
-            media = MediaIoBaseUpload(MediaBytesIO(data), mimetype=mime_type, resumable=True)
-            
-            file = drive_service.files().create(
-                body=file_metadata,
-                media_body=media,
-                fields='id'
-            ).execute()
-            
-            return file.get('id')
-        except Exception as e:
-            logger.error(f"❌ Failed to upload {filename} to Drive: {e}")
-            return None
-
-    # יצירת שמות קבצים ייחודיים
-    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-    guest_id = _upload(guests_bytes, f"{phone}_guests_{timestamp}.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    contact_id = _upload(contacts_bytes, f"{phone}_contacts_{timestamp}.xlsx", contacts_mime)
-    
-    # 🔥 שמירת המזהים (IDs) ב-Sheets
-    if guest_id or contact_id:
-        await update_user_sheet(
-            phone, 
-            guests_file_id=guest_id if guest_id else '', 
-            contacts_file_id=contact_id if contact_id else '',
-            files_saved=datetime.now().strftime("%d/%m/%y %H:%M") # Updates the files_saved column
-        )
-    
-    return {"guests_file_id": guest_id, "contacts_file_id": contact_id}
-
-# 🔥 DRIVE: הורדת קבצים מ-Drive
-def load_file_from_drive(file_id: str) -> Optional[BytesIO]:
-    """Downloads a file from Google Drive and returns it as BytesIO."""
-    drive_service = get_drive_service()
-    if not drive_service:
-        return None
-
-    try:
-        file = BytesIO()
-        downloader = MediaIoBaseDownload(file, drive_service.files().get_media(fileId=file_id))
-        
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-        
-        file.seek(0)
-        logger.info(f"📂 File loaded from Drive: {file_id}")
-        return file
-    except Exception as e:
-        logger.error(f"❌ Failed to load file from Drive: {e}")
-        return None
-
-
-# 🔥 DRIVE: ניקוי קבצים ישנים (משתמש ב-DRIVE_PARENT_FOLDER_ID)
-async def cleanup_old_sessions():
-    """מנקה קבצים ישנים מ-Drive שנוצרו לפני MAX_STORAGE_DAYS"""
-    if not AUTO_CLEANUP_ENABLED or not DRIVE_PARENT_FOLDER_ID:
-        logger.info("Drive Cleanup disabled or folder ID missing.")
-        return
-        
-    drive_service = get_drive_service()
-    if not drive_service:
-        return
-    
-    cutoff_date = (datetime.now() - timedelta(days=MAX_STORAGE_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
-    
-    try:
-        # חיפוש קבצים בתוך התיקייה המוגדרת
-        query = (
-            f"'{DRIVE_PARENT_FOLDER_ID}' in parents and "
-            f"modifiedTime < '{cutoff_date}Z'"
-        )
-        
-        results = drive_service.files().list(
-            q=query, 
-            fields="files(id, name)",
-            pageSize=100
-        ).execute()
-        
-        count = 0
-        for file in results.get('files', []):
-            drive_service.files().delete(fileId=file['id']).execute()
-            logger.info(f"🗑️ Deleted old Drive file: {file['name']}")
-            count += 1
-            
-        logger.info(f"✅ Drive cleanup finished: {count} files deleted.")
-            
-    except Exception as e:
-        logger.error(f"❌ Drive Cleanup error: {e}")
-
-# הפעלת תזמון
-scheduler = BackgroundScheduler()
-scheduler.add_job(cleanup_old_sessions, 'interval', days=1) 
-scheduler.start()
-
-
+# 🔥 MODIFIED: Handles user creation and reset logic
 async def check_and_reset_user(phone: str) -> Dict[str, Any]:
     """בודק אם עברו 24 שעות ומאפס, ומחזיר את כל נתוני המשתמש."""
     user_data = await find_user_data(phone)
 
     if not user_data:
-        return {"remaining_matches": DAILY_LIMIT, "is_premium": False, "hours_until_reset": 0, "full_name": ""}
+        # אם משתמש לא קיים עדיין, יוצר אובייקט ברירת מחדל
+        return {
+            "remaining_matches": DAILY_LIMIT, 
+            "is_premium": False, 
+            "hours_until_reset": 0,
+            "full_name": ""
+        }
     
+    # 1. חילוץ נתונים
     last_activity_str = user_data.get('last_activity')
     daily_used = user_data['daily_matches_used']
     is_premium = user_data['is_premium']
@@ -398,8 +294,10 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
     now = datetime.now()
     hours_passed = 24
     
+    # 2. בדיקת זמן איפוס
     if last_activity_str:
         try:
+            # 🔥 גמישות בפורמט: מנסה קודם את הפורמט הסטנדרטי שלנו, ואז פורמט ISO.
             if len(last_activity_str) < 18:
                 last_activity = datetime.strptime(last_activity_str, "%d/%m/%y %H:%M")
             else:
@@ -410,6 +308,7 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
             hours_passed = 24
             logger.warning(f"⚠️ Invalid last_activity date format for {phone}, assuming 24h passed.")
 
+    # 3. איפוס המונה (Daily Used)
     if hours_passed >= 24 and daily_used > 0:
         await update_user_sheet(phone, daily_matches_used=0)
         daily_used = 0
@@ -417,6 +316,7 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
         hours_passed = 24
         logger.info(f"♻️ Daily usage reset for {phone}")
 
+    # 4. חישוב שעות עד איפוס
     if is_premium or remaining >= DAILY_LIMIT:
         hours_until_reset = 0
     else:
@@ -427,49 +327,74 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
     
     return user_data
 
+# 🔥 MODIFIED: Handles user creation/update (D & B)
 async def log_or_create_user(phone: str, full_name: Optional[str] = None) -> Dict[str, Any]:
-    """Handles user creation/update (D & B)."""
+    """
+    בודק האם המשתמש קיים.
+    אם לא: יוצר שורה חדשה עם 'join_date' (דרישה D).
+    אם כן: מעדכן 'last_activity' ואת 'full_name' רק אם הוא ריק (דרישה B).
+    מחזיר את נתוני המשתמש המעודכנים.
+    """
     user_data = await find_user_data(phone)
     now = datetime.now().strftime("%d/%m/%y %H:%M")
     
     if user_data:
+        # המשתמש קיים - עדכון last_activity ו-full_name אם ריק (דרישה B & E)
         updates = {'last_activity': now}
         
         is_name_set = user_data.get('full_name', '').strip() != ''
         if full_name and not is_name_set:
             updates['full_name'] = full_name
-            user_data['full_name'] = full_name
+            user_data['full_name'] = full_name # עדכון ה-dict המוחזר
             
         if updates:
             await update_user_sheet(phone, **updates)
             logger.info(f"✅ Updated user (log-in): {phone}")
         
     else:
+        # משתמש חדש - יצירת שורה (דרישה D & E)
         ws = await get_worksheet()
-        if not ws: raise Exception("Cannot access worksheet")
+        if not ws:
+            raise Exception("Cannot access worksheet")
 
         all_values = ws.get_all_values()
         next_row = len(all_values) + 1
         next_id = next_row - 1
         
-        # 12 עמודות - כולל ID קבצים ו-session_data
+        # 🚨 ה-daily_matches_used בברירת מחדל הוא 0, משמע remaining_matches=30
         new_user_data = [
-            next_id, full_name or "", phone, now, now, 0, "", "", 'FALSE', 0, 0, ""
+            next_id,
+            full_name or "", # full_name יכול להיות ריק בכניסה ראשונה
+            phone,
+            now, # join_date (דרישה D)
+            now, # last_activity (דרישה E)
+            0,
+            "", "", # current_file_hash, current_progress (לא בשימוש ב-Frontend)
+            'FALSE'
         ]
         
-        ws.update(f"A{next_row}:L{next_row}", [new_user_data])
+        # יש לוודא שהכותרות תואמות
+        ws.update(f"A{next_row}:I{next_row}", [new_user_data])
         logger.info(f"✅ Added new user: {phone}")
         
+        # יצירת מילון עם נתוני משתמש מלאים
         headers = ws.row_values(1)
-        user_data = dict(zip(headers, new_user_data))
+        user_data = _map_row_to_user_data(new_user_data, headers)
         user_data['row_index'] = next_row
 
     return user_data
 
+
+# 🔥 MODIFIED: Batch update user (F)
 async def batch_update_user(phone: str, matches_used: int):
-    """Updates daily_matches_used and last_activity."""
+    """
+    מעדכן Batch - מעדכן את 'daily_matches_used' ואת 'last_activity'.
+    """
     user_data = await check_and_reset_user(phone)
-    if not user_data: return 0
+    
+    if not user_data:
+        return 0
+        
     is_premium = user_data.get("is_premium")
 
     try:
@@ -478,18 +403,28 @@ async def batch_update_user(phone: str, matches_used: int):
         new_remaining = max(0, DAILY_LIMIT - new_used)
         now = datetime.now().strftime("%d/%m/%y %H:%M")
         
-        updates = {'last_activity': now}
-        if not is_premium:
-            updates['daily_matches_used'] = new_used
-            
-        await update_user_sheet(phone, **updates)
+        if is_premium:
+            # אם פרימיום, רק מעדכנים last_activity
+            await update_user_sheet(phone, last_activity=now)
+            new_remaining = 999999
+        else:
+            # אם לא פרימיום, מעדכנים שימוש ואקטיביות
+            await update_user_sheet(
+                phone,
+                last_activity=now,
+                daily_matches_used=new_used
+            )
         
         logger.info(f"✅ Batch updated {phone}: used {matches_used}, new total used {new_used}")
-        return new_remaining if not is_premium else 999999
+        return new_remaining
         
     except Exception as e:
         logger.error(f"❌ Batch update failed: {e}")
         return 0
+
+# ============================================================
+#                    HELPER FUNCTIONS
+# ============================================================
 
 def format_phone_for_whatsapp(phone: str) -> str:
     """Format phone for WhatsApp"""
@@ -566,8 +501,8 @@ def format_time_until_reset(hours: float) -> str:
 
 app = FastAPI(
     title="Guest Matcher API",
-    version="5.2.0",
-    description="Drive and Resume Session System"
+    version="5.1.0",
+    description="Auth Refactor and Batch processing system"
 )
 
 app.add_middleware(
@@ -577,9 +512,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+logger.info("✅ CORS configured")
+
 
 # ============================================================
-#                    API ROUTES
+#                    API ROUTES (MODIFIED)
 # ============================================================
 
 @app.get("/")
@@ -587,14 +524,15 @@ async def root():
     """Root endpoint"""
     return {
         "name": "Guest Matcher API",
-        "version": "5.2.0",
+        "version": "5.1.0",
         "status": "operational",
         "features": {
             "matching": LOGIC_AVAILABLE,
             "database": bool(GOOGLE_SHEET_ID),
             "whatsapp": bool(GREEN_API_URL),
-            "drive_storage": bool(DRIVE_PARENT_FOLDER_ID),
-            "resume_session": True
+            "batch_update": True,
+            "smart_export": True,
+            "auth_steps": True
         }
     }
 
@@ -621,11 +559,14 @@ async def send_code_endpoint(data: SendCodeRequest, request: Request):
         raise HTTPException(429, "Too many requests")
     
     try:
+        # 🔥 חדש: יוצר שורה חדשה ומעדכן join_date מיד עם שליחת הקוד (דרישה D)
+        # full_name הוא None כי לא נדרש בשלב זה.
         await log_or_create_user(phone, full_name=None)
     except Exception as e:
         logger.error(f"❌ DB Error during send-code: {e}")
         raise HTTPException(500, "Internal server error during user setup")
 
+    # Send OTP Logic
     formatted_phone = format_phone_for_whatsapp(phone)
     code = str(random.randint(1000, 9999))
     
@@ -634,6 +575,7 @@ async def send_code_endpoint(data: SendCodeRequest, request: Request):
         "timestamp": time.time(),
     }
     
+    # ... (WhatsApp/Fallback code sending logic)
     if GREEN_API_URL:
         payload = {"chatId": f"{formatted_phone}@c.us", "message": f"🔐 קוד האימות שלך: {code}"}
         try:
@@ -656,9 +598,15 @@ async def verify_code_endpoint(data: VerifyCodeRequest):
     if not phone or not code:
         raise HTTPException(400, "Phone and code required")
     
-    is_admin_master = (phone in ADMIN_CODES and code == ADMIN_CODES[phone]) or (code == MASTER_CODE)
+    # Admin/Master Code Check
+    is_admin_master = False
+    if phone in ADMIN_CODES and code == ADMIN_CODES[phone]:
+        is_admin_master = True
+    elif code == MASTER_CODE:
+        is_admin_master = True
 
     if is_admin_master:
+        # עדכון משתמש כ-Admin (שם נשמר רק אם עדיין לא קיים)
         user_data = await log_or_create_user(phone, full_name="Admin" if phone in ADMIN_CODES else "Master User")
         user_stats = await check_and_reset_user(phone)
         
@@ -670,6 +618,7 @@ async def verify_code_endpoint(data: VerifyCodeRequest):
             "user_full_name": user_data.get("full_name", "")
         }
     
+    # Regular Code Check
     if phone in pending_codes:
         stored_data = pending_codes[phone]
         stored_code = stored_data.get("code")
@@ -682,9 +631,11 @@ async def verify_code_endpoint(data: VerifyCodeRequest):
         if stored_code == code:
             pending_codes.pop(phone, None)
             
+            # 🔥 חדש: עדכון last_activity מיד לאחר האימות וקבלת נתונים
             user_data = await log_or_create_user(phone, full_name=None)
             user_stats = await check_and_reset_user(phone)
             
+            # 🔥 חדש: בדיקה אם השם המלא ריק (דרישה B)
             if user_data.get('full_name', '').strip() == '':
                 logger.info(f"➡️ User {phone} verified, requires name input.")
                 return {"status": "NAME_REQUIRED"}
@@ -702,9 +653,123 @@ async def verify_code_endpoint(data: VerifyCodeRequest):
     return {"status": "FAILED"}
 
 
+# Endpoint לשמירת סשן
+@app.post("/save-session")
+async def save_session_endpoint(data: dict):
+    """שומר את מצב הסשן של המשתמש"""
+    phone = data.get("phone")
+    if not phone:
+        raise HTTPException(400, "Phone required")
+    
+    try:
+        gc = get_google_client()
+        
+        # איסוף כל הנתונים לשמירה
+        session_data = {
+            "phone": phone,
+            "timestamp": datetime.now().isoformat(),
+            "matching_results": data.get("matching_results", []),
+            "selected_contacts": data.get("selected_contacts", {}),
+            "current_guest_index": data.get("current_guest_index", 0),
+            "file_hash": data.get("file_hash", ""),
+            "filters": data.get("filters", {}),
+            "skip_filled_phones": data.get("skip_filled_phones", False),
+            "auto_selected_count": data.get("auto_selected_count", 0),
+            "perfect_matches_count": data.get("perfect_matches_count", 0),
+            "matches_used_in_session": data.get("matches_used_in_session", 0)
+        }
+        
+        # שמירת הסשן
+        session_id = save_session_to_drive(gc, phone, session_data)
+        
+        # עדכון ב-Google Sheets
+        await update_user_sheet(
+            phone,
+            current_file_hash=data.get("file_hash", ""),
+            current_progress=f"{data.get('current_guest_index', 0)}/{len(data.get('matching_results', []))}"
+        )
+        
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "message": "הסשן נשמר בהצלחה"
+        }
+        
+    except Exception as e:
+        logger.error(f"Save session error: {e}")
+        raise HTTPException(500, f"Failed to save session: {str(e)}")
+
+# Endpoint לטעינת סשן
+@app.post("/load-session")
+async def load_session_endpoint(data: dict):
+    """טוען את הסשן האחרון של המשתמש"""
+    phone = data.get("phone")
+    if not phone:
+        raise HTTPException(400, "Phone required")
+    
+    try:
+        gc = get_google_client()
+        
+        # טעינת הסשן האחרון
+        session_data = load_session_from_drive(gc, phone)
+        
+        if not session_data:
+            return {
+                "status": "no_session",
+                "message": "לא נמצא סשן שמור"
+            }
+        
+        # בדיקה אם הסשן עדיין רלוונטי (פחות מ-7 ימים)
+        session_time = datetime.fromisoformat(session_data.get('timestamp', ''))
+        if (datetime.now() - session_time).days > 7:
+            return {
+                "status": "expired",
+                "message": "הסשן פג תוקף"
+            }
+        
+        return {
+            "status": "success",
+            "session_data": session_data,
+            "message": "הסשן נטען בהצלחה"
+        }
+        
+    except Exception as e:
+        logger.error(f"Load session error: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+# Endpoint לשמירת קבצים
+@app.post("/save-files")
+async def save_files_endpoint(
+    guests_file: UploadFile = File(...),
+    contacts_file: UploadFile = File(None),
+    phone: str = None
+):
+    """שומר את הקבצים ב-Google Drive"""
+    if not phone:
+        raise HTTPException(400, "Phone required")
+    
+    try:
+        gc = get_google_client()
+        
+        # שמירת הקבצים
+        saved = save_files_to_drive(gc, phone, guests_file, contacts_file)
+        
+        return {
+            "status": "success",
+            "saved_files": saved,
+            "message": "הקבצים נשמרו בהצלחה"
+        }
+        
+    except Exception as e:
+        logger.error(f"Save files error: {e}")
+        raise HTTPException(500, f"Failed to save files: {str(e)}")
+    
 @app.post("/save-full-name")
 async def save_full_name_endpoint(data: SaveFullNameRequest):
-    """Save full name for first-time users (B)"""
+    """🔥 NEW: Save full name for first-time users (B)"""
     phone = data.phone
     full_name = data.full_name
     
@@ -719,10 +784,16 @@ async def save_full_name_endpoint(data: SaveFullNameRequest):
 
         is_name_set = user_data.get('full_name', '').strip() != ''
         
-        if not is_name_set:
+        if is_name_set:
+            logger.warning(f"⚠️ User {phone} tried to overwrite name: {user_data['full_name']} with {full_name}")
+            # במקרה כזה, נתעלם מהעדכון (דרישה B)
+            pass
+        else:
+            # עדכון השם ב-DB (דרישה B)
             await update_user_sheet(phone, full_name=full_name)
             logger.info(f"✅ Full name saved for {phone}: {full_name}")
             
+        # לאחר שמירת השם, נחזיר את נתוני המשתמש המעודכנים כדי לאפשר כניסה
         user_stats = await check_and_reset_user(phone)
         
         return {
@@ -739,7 +810,7 @@ async def save_full_name_endpoint(data: SaveFullNameRequest):
         logger.error(f"❌ Save full name error: {e}")
         raise HTTPException(500, "Failed to save name")
 
-
+# 🔥 נקודת קצה חדשה לבדיקת עמודת טלפון
 @app.post("/check-phone-column")
 async def check_phone_column(guests_file: UploadFile = File(...)):
     """בדיקה אם קובץ המוזמנים מכיל עמודת טלפון מלאה"""
@@ -773,7 +844,7 @@ async def merge_files(
     skip_filled_phones: str = "false",
     background_tasks: BackgroundTasks = None
 ):
-    """Process, Match, Save Files to Drive, and store session info"""
+    """🔥 Process and match - NO immediate updates"""
     if not LOGIC_AVAILABLE:
         raise HTTPException(500, "Logic not available")
     
@@ -786,8 +857,12 @@ async def merge_files(
             raise HTTPException(400, error)
     
     try:
+        logger.info("📂 Reading files...")
         guests_bytes = await guests_file.read()
         contacts_bytes = await contacts_file.read()
+        
+        if len(guests_bytes) > MAX_FILE_SIZE or len(contacts_bytes) > MAX_FILE_SIZE:
+            raise HTTPException(400, f"File too large")
         
         file_hash = create_file_hash(guests_bytes)
         
@@ -805,31 +880,38 @@ async def merge_files(
                     "formatted_time": format_time_until_reset(hours_left)
                 })
         
-        # 2. 🔥 שמירת קבצים ל-Drive ושמירת ID ב-Sheets
-        if phone and DRIVE_PARENT_FOLDER_ID:
-            guests_filename = guests_file.filename
-            contacts_mime_type = contacts_file.content_type
-            
-            await save_files_to_drive(
-                phone, 
-                guests_bytes, 
-                contacts_bytes, 
-                guests_filename, 
-                contacts_mime_type
-            )
-        
-        # 3. שמור קובץ מקורי בזיכרון (עבור Export)
+        # 🔥 שמור את הקובץ המקורי בזיכרון!
         if phone:
             user_sessions[phone] = {
                 "original_guests_file": BytesIO(guests_bytes),
                 "original_guests_filename": guests_file.filename,
-                "skip_filled_phones": skip_filled_phones.lower() == 'true'
+                "skip_filled_phones": skip_filled_phones.lower() == 'true' # 🔥 שמור את הדגל
             }
         
-        # 4. Process (הפעלת לוגיקת המיזוג)
+        # Process
+        logger.info("👰 Processing guests...")
         guests_df = load_excel_flexible(BytesIO(guests_bytes))
-        contacts_df = load_excel_flexible(BytesIO(contacts_bytes))
+        del guests_bytes
+        
+        logger.info(f"📞 Processing contacts ({contacts_source})...")
+        if contacts_source == "mobile":
+            contacts_data = json.loads(contacts_bytes.decode('utf-8'))
+            contacts_df = load_mobile_contacts(contacts_data)
+            del contacts_data
+        else:
+            contacts_df = load_excel_flexible(BytesIO(contacts_bytes))
+        
+        del contacts_bytes
+        
+        is_valid, error = validate_dataframes(guests_df, contacts_df)
+        if not is_valid:
+            raise HTTPException(400, error)
+        
+        logger.info("🔄 Processing matches...")
         all_results = process_matching_results(guests_df, contacts_df, contacts_source)
+        
+        del guests_df
+        del contacts_df
         
         results_93_plus = [r for r in all_results if r.get("best_score", 0) >= 93]
         results_below_93 = [r for r in all_results if r.get("best_score", 0) < 93]
@@ -857,6 +939,8 @@ async def merge_files(
         auto_count = sum(1 for r in limited_results if r.get("auto_selected"))
         perfect_count = sum(1 for r in limited_results if r.get("best_score") == 100)
         
+        logger.info(f"✅ Loaded {len(limited_results)} guests")
+        
         response_data = {
             "results": limited_results,
             "total_guests": len(limited_results),
@@ -882,106 +966,12 @@ async def merge_files(
         logger.error(traceback.format_exc())
         raise HTTPException(500, str(e))
 
-# 🔥 NEW: נקודת קצה לשמירת מצב הסשן (בחירות, אינדקס)
-@app.post("/save-session-state")
-async def save_session_state_endpoint(data: dict):
-    """שומר את מצב הסשן (בחירות, אינדקס) ב-Google Sheets (עמודה L)."""
-    phone = data.get("phone")
-    if not phone:
-        raise HTTPException(400, "Phone required")
-    
-    try:
-        session_state = {
-            "current_guest_index": data.get("current_guest_index", 0),
-            "selected_contacts": data.get("selected_contacts", {}),
-            "matches_used_in_session": data.get("matches_used_in_session", 0),
-            "file_hash": data.get("file_hash", ""),
-            "skip_filled_phones": data.get("skip_filled_phones", False),
-            "total_guests": data.get("total_guests", 0),
-            "timestamp": datetime.now().isoformat(),
-        }
-        
-        pickled_state = pickle.dumps(session_state).decode('latin1')
-        
-        await update_user_sheet(
-            phone,
-            session_data=pickled_state,
-            last_index=session_state["current_guest_index"],
-            total_guests=session_state["total_guests"]
-        )
-        
-        return {"status": "success", "message": "מצב הסשן נשמר בהצלחה"}
-        
-    except Exception as e:
-        logger.error(f"❌ Save session state error: {e}")
-        raise HTTPException(500, f"Failed to save session state: {str(e)}")
-
-# 🔥 NEW: נקודת קצה לטעינת סשן
-@app.post("/load-session")
-async def load_session_endpoint(data: dict):
-    """טוען את הסשן האחרון של המשתמש מה-Sheets וה-Drive."""
-    phone = data.get("phone")
-    if not phone:
-        raise HTTPException(400, "Phone required")
-    
-    try:
-        user_row = await find_user_data(phone)
-        
-        if not user_row:
-            return {"status": "NO_SESSION"}
-
-        # 1. בדיקת נתיבי קבצים שמורים
-        guests_file_id = user_row.get('guests_file_id')
-        contacts_file_id = user_row.get('contacts_file_id')
-        session_data_raw = user_row.get('session_data')
-        
-        if not guests_file_id or not contacts_file_id or not session_data_raw:
-            return {"status": "NO_SESSION", "message": "לא נמצאו קבצים או מצב שמור"}
-            
-        # 2. טעינת קבצי ה-DF
-        guests_file_data = load_file_from_drive(guests_file_id)
-        contacts_file_data = load_file_from_drive(contacts_file_id)
-
-        if not guests_file_data or not contacts_file_data:
-            return {"status": "NO_SESSION", "message": "לא נמצאו קבצים ב-Drive"}
-
-        # 🔥 טעינת מצב הסשן (אינדקס, בחירות)
-        session_state = pickle.loads(session_data_raw.encode('latin1'))
-
-        # 3. בדיקת תוקף זמן (נניח 7 ימים)
-        session_time = datetime.fromisoformat(session_state.get('timestamp', '1970-01-01T00:00:00'))
-        if (datetime.now() - session_time).days > 7:
-            await update_user_sheet(phone, session_data='', guests_file_id='', contacts_file_id='', last_index=0, total_guests=0)
-            return {"status": "EXPIRED", "message": "הסשן פג תוקף (מעל 7 ימים)"}
-
-        # 4. הפעלת לוגיקת המיזוג מחדש (כדי לקבל את results)
-        guests_df = load_excel_flexible(guests_file_data)
-        contacts_df = load_excel_flexible(contacts_file_data)
-        all_results = process_matching_results(guests_df, contacts_df, contacts_source="file")
-        
-        # 5. 🔥 שמירת הקבצים ב-in-memory cache (עבור export)
-        user_sessions[phone] = {
-            "original_guests_file": guests_file_data,
-            "original_guests_filename": "resumed_guests.xlsx",
-            "skip_filled_phones": session_state.get("skip_filled_phones", False)
-        }
-
-        # 6. החזרת כל הנתונים הדרושים ל-Frontend
-        return {
-            "status": "SESSION_RESUMED",
-            "results": all_results,
-            "session_data": session_state
-        }
-
-    except Exception as e:
-        logger.error(f"❌ Load session error: {e}")
-        return {"status": "NO_SESSION", "error": str(e)}
-
 # 🔥 עדכון חדש - Batch בסוף
 @app.post("/complete-session")
 async def complete_session(data: dict):
     """
-    מסיים session ומעדכן Batch
+    🔥 מסיים session ומעדכן Batch
+    נקרא רק כאשר המשתמש מסיים או מייצא
     """
     phone = data.get("phone")
     matches_used = data.get("matches_used", 0)
@@ -990,13 +980,12 @@ async def complete_session(data: dict):
         raise HTTPException(400, "Phone required")
     
     try:
+        # עדכון Batch
         new_remaining = await batch_update_user(phone, matches_used)
         
+        # נקה session
         if phone in user_sessions:
             del user_sessions[phone]
-        
-        # ננקה את נתוני הסשן ב-Sheets גם כן
-        await update_user_sheet(phone, session_data='', guests_file_id='', contacts_file_id='', last_index=0, total_guests=0)
         
         return {
             "status": "success",
@@ -1010,32 +999,40 @@ async def complete_session(data: dict):
 
 @app.post("/export-results")
 async def export_results(data: dict):
-    """ייצוא חכם - שומר מבנה מקורי"""
+    """🔥 ייצוא חכם - שומר מבנה מקורי"""
     if not LOGIC_AVAILABLE:
         raise HTTPException(500, "Logic not available")
     
     phone = data.get("phone")
     results = data.get("results", [])
     selected_contacts = data.get("selected_contacts", {})
+    # 🔥 חדש: קבל את דגל הדילוג מה-Client
     skip_filled_from_client = data.get("skip_filled", False) 
     
     if not results:
         raise HTTPException(400, "No results")
     
     try:
+        # 🔥 אם יש קובץ מקורי בזיכרון - השתמש בו!
         original_file = None
-        skip_filled_flag = skip_filled_from_client
+        skip_filled_flag = skip_filled_from_client # ברירת מחדל: הדגל שהגיע מה-Client
         
         if phone and phone in user_sessions:
             session = user_sessions[phone]
             original_file = session.get("original_guests_file")
+            # אם יש נתונים ב-session, השתמש בדגל משם (העדפה לדגל שנשמר)
             if original_file:
                 skip_filled_flag = session.get("skip_filled_phones", skip_filled_from_client)
-                original_file.seek(0)
+                original_file.seek(0)  # חזור להתחלה
+                logger.info(f"📁 Using original file from session for {phone}, skip_filled={skip_filled_flag}")
         
+        # אם יש קובץ מקורי - ייצוא חכם
         if original_file:
+            # 🔥 העברת הדגל החדש לפונקציית הייצוא ב-logic.py
             excel_buffer = export_with_original_structure(original_file, selected_contacts, skip_filled=skip_filled_flag)
             filename = f"guests_with_contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            
+            logger.info(f"📥 Smart export for {len(results)} guests")
             
             return StreamingResponse(
                 BytesIO(excel_buffer.getvalue()),
@@ -1043,7 +1040,7 @@ async def export_results(data: dict):
                 headers={"Content-Disposition": f"attachment; filename={filename}"}
             )
         
-        # אחרת - ייצוא רגיל
+        # אחרת - ייצוא רגיל (backwards compatibility)
         export_data = []
         for result in results:
             guest_name = result["guest"]
@@ -1066,6 +1063,8 @@ async def export_results(data: dict):
         excel_buffer = to_buf(export_df)
         
         filename = f"guests_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        logger.info(f"📥 Regular export for {len(results)} guests")
         
         return StreamingResponse(
             BytesIO(excel_buffer.getvalue()),
