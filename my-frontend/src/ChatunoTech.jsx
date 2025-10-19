@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './ChatunoTech.css';
 import { AuthScreen, LandingPage, LimitReachedScreen, ContactsGuideModal } from './AuthScreen';
-import { UploadScreen, MatchingSidebar, GuestCard, SuccessScreen, LimitDisplay } from './MatchingScreen';
+import { UploadScreen, MatchingSidebar, GuestCard, SuccessScreen } from './MatchingScreen';
 
 const ChatunoTech = () => {
   // Constants
   const API_BASE_URL = 'https://new-569016630628.europe-west1.run.app';
   const DAILY_LIMIT = 30;
-  const AUTO_SELECT_TH = 93; 
   
   // State
-  const [currentScreen, setCurrentScreen] = useState('landingPage');
+  const [currentScreen, setCurrentScreen] = useState('landingPage'); 
+  const [authStep, setAuthStep] = useState('phoneScreen'); // 🔥 'phoneScreen', 'codeScreen', 'nameScreen'
   const [currentUser, setCurrentUser] = useState({
     phone: '',
     fullName: '',
@@ -44,7 +44,6 @@ const ChatunoTech = () => {
   const [phoneValue, setPhoneValue] = useState('');
   const [fullNameValue, setFullNameValue] = useState('');
   const [codeValue, setCodeValue] = useState('');
-  const [showCodeInput, setShowCodeInput] = useState(false);
   const [autoSelectedCount, setAutoSelectedCount] = useState(0);
   const [perfectMatchesCount, setPerfectMatchesCount] = useState(0);
 
@@ -62,7 +61,8 @@ const ChatunoTech = () => {
 
   const checkMobileSupport = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/check-mobile-support`, {
+      // אם יש צורך בנקודת קצה כזו, יש להוסיף אותה ב-Backend
+      const response = await fetch(`${API_BASE_URL}/check-mobile-support`, { 
         headers: { 'User-Agent': navigator.userAgent }
       });
       const data = await response.json();
@@ -74,11 +74,8 @@ const ChatunoTech = () => {
 
   // Helper functions
   const showMessage = (text, type) => {
-    // 🔥 משאיר רק הודעות שגיאה (error) ואזהרה (warning) גלויות
-    if (type === 'error' || type === 'warning') {
-        setMessage({ text, type });
-        setTimeout(() => setMessage({ text: '', type: '' }), 5000);
-    }
+    setMessage({ text, type });
+    setTimeout(() => setMessage({ text: '', type: '' }), 5000);
   };
 
   const formatResetTime = (hours) => {
@@ -90,7 +87,7 @@ const ChatunoTech = () => {
     return `${m} דקות`;
   };
 
-  // Auth Functions
+  // 🔥 Auth Functions (MODIFIED)
   const sendCode = async () => {
     const phoneRegex = /^05\d{8}$/;
     if (!phoneRegex.test(phoneValue)) {
@@ -98,30 +95,25 @@ const ChatunoTech = () => {
       return;
     }
 
-    const nameRegex = /^[\u0590-\u05FFa-zA-Z\s]{2,}$/;
-    if (!nameRegex.test(fullNameValue.trim())) {
-      showMessage('❌ שם לא תקין', 'error');
-      return;
-    }
-
     try {
       setIsLoading(true);
+      showMessage('📱 שולח קוד...', 'success');
       
+      // 🔥 קורא ל-send-code ללא שם (דרישה D)
       const response = await fetch(`${API_BASE_URL}/send-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           phone: phoneValue,
-          full_name: fullNameValue 
         })
       });
 
       if (response.ok) {
-        setShowCodeInput(true);
+        showMessage('📱 קוד נשלח בהצלחה!', 'success');
+        setAuthStep('codeScreen'); // ➡️ מעבר לשלב הקוד
         setCurrentUser((prev) => ({ 
           ...prev, 
           phone: phoneValue,
-          fullName: fullNameValue 
         }));
       } else {
         const errorData = await response.json();
@@ -136,12 +128,13 @@ const ChatunoTech = () => {
 
   const verifyCode = async () => {
     if (!codeValue || codeValue.length !== 4) {
-      showMessage('❌ אנא הזן קוד בן 4 ספרות', 'error');
+      showMessage('אנא הזן קוד בן 4 ספרות', 'error');
       return;
     }
 
     try {
       setIsLoading(true);
+      showMessage('🔐 מאמת קוד...', 'success');
       
       const response = await fetch(`${API_BASE_URL}/verify-code`, {
         method: 'POST',
@@ -149,51 +142,113 @@ const ChatunoTech = () => {
         body: JSON.stringify({ 
           phone: phoneValue, 
           code: codeValue,
-          full_name: fullNameValue
         })
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.status === 'expired') {
-          showMessage('⏰ הקוד פג תוקף', 'error');
-          setShowCodeInput(false);
-          setCodeValue('');
-          return;
-        }
-        
-        if (data.status === 'success') {
-          setCurrentUser((prev) => ({ 
-            ...prev, 
-            remainingMatches: data.remaining_matches || 30,
-            isPro: data.is_premium || false,
-            hoursUntilReset: data.hours_until_reset || 0
-          }));
-
-          setTimeout(() => {
-            // 🔥 בדיקת הגבלה נשארת, אך ללא הודעות קופצות
-            if (data.remaining_matches <= 0 && !data.is_premium) {
-              setCurrentScreen('limitReached');
-            } else {
-              setCurrentScreen('uploadScreen');
-            }
-          }, 500);
-        } else {
-          showMessage('❌ קוד שגוי', 'error');
-        }
+      const data = await response.json();
+      
+      if (data.status === 'EXPIRED') {
+        showMessage('⏰ הקוד פג תוקף', 'error');
+        setAuthStep('phoneScreen');
+        setCodeValue('');
+        return;
       }
+      
+      if (data.status === 'NAME_REQUIRED') {
+        showMessage('📝 אנא הזן שם מלא', 'info');
+        setAuthStep('nameScreen'); // ➡️ מעבר לשלב השם (דרישה 3)
+        return;
+      }
+      
+      if (data.status === 'LOGIN_SUCCESS') {
+        handleLoginSuccess(data);
+      } else {
+        showMessage('❌ קוד שגוי', 'error');
+      }
+
     } catch (error) {
       showMessage(`❌ שגיאה: ${error.message}`, 'error');
     } finally {
       setIsLoading(false);
     }
   };
+  
+  const saveFullName = async () => {
+    const nameRegex = /^[\u0590-\u05FFa-zA-Z\s]{2,}$/;
+    if (!nameRegex.test(fullNameValue.trim())) {
+      showMessage('❌ שם לא תקין', 'error');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      showMessage('💾 שומר שם...', 'success');
+      
+      // 🔥 קורא לנקודת הקצה החדשה לשמירת שם
+      const response = await fetch(`${API_BASE_URL}/save-full-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          phone: phoneValue, 
+          full_name: fullNameValue
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.status === 'LOGIN_SUCCESS') {
+        handleLoginSuccess(data);
+      } else {
+        throw new Error(data.message || 'שגיאה בשמירת השם');
+      }
+    } catch (error) {
+      showMessage(`❌ ${error.message}`, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLoginSuccess = (data) => {
+    setCurrentUser((prev) => ({ 
+      ...prev, 
+      remainingMatches: data.remaining_matches || 30,
+      isPro: data.is_premium || false,
+      hoursUntilReset: data.hours_until_reset || 0,
+      fullName: data.user_full_name // 🔥 שמירת השם המלא שהגיע מהשרת
+    }));
+
+    if (data.is_premium) {
+      showMessage('✅ פרימיום ללא הגבלה! 💎', 'success');
+    } else {
+      showMessage(
+        `✅ נותרו ${data.remaining_matches} התאמות (מתוך ${DAILY_LIMIT})`,
+        'success'
+      );
+    }
+    
+    setTimeout(() => {
+      if (data.remaining_matches <= 0 && !data.is_premium) {
+        showMessage(
+          `⏰ נגמרו ההתאמות. איפוס בעוד ${formatResetTime(data.hours_until_reset)}`,
+          'warning'
+        );
+        setTimeout(() => setCurrentScreen('limitReached'), 2000);
+      } else {
+        setTimeout(() => setCurrentScreen('uploadScreen'), 1500);
+      }
+    }, 1000);
+  }
 
   const backToPhoneScreen = () => {
-    setShowCodeInput(false);
+    setAuthStep('phoneScreen');
     setCodeValue('');
-    showMessage('ניתן לשלוח קוד חדש', 'info'); // השארת הודעה זו כהודעת מידע
+    showMessage('ניתן לשלוח קוד חדש', 'info');
+  };
+  
+  const backToCodeScreen = () => {
+    setAuthStep('codeScreen');
+    setFullNameValue('');
+    showMessage('חזרת לשלב הקוד', 'info');
   };
 
   // File Upload
@@ -202,7 +257,7 @@ const ChatunoTech = () => {
     if (!file) return;
 
     try {
-      // 🔥 הוסר showMessage
+      showMessage(`טוען קובץ ${type === 'guests' ? 'מוזמנים' : 'אנשי קשר'}...`, 'success');
       
       setUploadedFiles(prev => ({
         ...prev,
@@ -213,21 +268,19 @@ const ChatunoTech = () => {
         setContactsSource('file');
       }
       
-      // אם זה קובץ מוזמנים - בדוק אם יש עמודת טלפון
       if (type === 'guests') {
         await checkPhoneColumnInFile(file);
       }
       
-      // 🔥 הוסר showMessage
+      showMessage(`קובץ נטען בהצלחה`, 'success');
       
     } catch (error) {
-      showMessage(`❌ שגיאה: ${error.message}`, 'error');
+      showMessage(`שגיאה: ${error.message}`, 'error');
     }
   };
 
   // בדיקת עמודת טלפון
   const checkPhoneColumnInFile = async (file) => {
-    // ... (קוד נשאר זהה) ...
     try {
       const formData = new FormData();
       formData.append('guests_file', file);
@@ -265,6 +318,7 @@ const ChatunoTech = () => {
 
     try {
       setIsLoading(true);
+      showMessage('📱 מבקש גישה...', 'success');
 
       const contacts = await navigator.contacts.select(['name', 'tel'], { multiple: true });
       
@@ -278,6 +332,8 @@ const ChatunoTech = () => {
       setContactsSource('mobile');
       setUploadedFiles(prev => ({ ...prev, contacts: 'mobile_contacts' }));
       
+      showMessage(`✅ נטענו ${formattedContacts.length} אנשי קשר!`, 'success');
+      
     } catch (error) {
       showMessage('❌ לא ניתן לגשת לאנשי קשר', 'error');
     } finally {
@@ -286,7 +342,6 @@ const ChatunoTech = () => {
   };
 
   const extractAllContacts = (results) => {
-    // ... (קוד נשאר זהה) ...
     const allContacts = new Map();
     
     results.forEach(result => {
@@ -306,7 +361,7 @@ const ChatunoTech = () => {
   // Merge
   const startMerge = async () => {
     if (!uploadedFiles.guests || !uploadedFiles.contacts) {
-      showMessage('❌ אנא וודא שהקבצים הועלו', 'error');
+      showMessage('אנא וודא שהקבצים הועלו', 'error');
       return;
     }
 
@@ -368,7 +423,7 @@ const ChatunoTech = () => {
       setAllContactsData(allContacts);
       
       setCurrentGuestIndex(0);
-      setMatchesUsedInSession(0); 
+      setMatchesUsedInSession(0);
 
       const autoSelections = {};
       data.results.forEach(result => {
@@ -383,8 +438,20 @@ const ChatunoTech = () => {
         showMessage(`⚠️ ${data.warning}`, 'warning');
       }
 
-      // 🔥 הוסרו הודעות ה-success על התאמות
-      
+      if (data.perfect_matches_count > 0) {
+        showMessage(
+          `🎯 ${data.perfect_matches_count} התאמות מושלמות (100%)!`,
+          'success'
+        );
+      }
+
+      if (data.auto_selected_count > 0) {
+        showMessage(
+          `✨ ${data.auto_selected_count} מומלצים (93%+)`,
+          'success'
+        );
+      }
+
       if (data.remaining_matches !== undefined) {
         setCurrentUser(prev => ({
           ...prev,
@@ -394,7 +461,7 @@ const ChatunoTech = () => {
 
       setCurrentScreen('matchingScreen');
     } catch (error) {
-      showMessage(`❌ שגיאה: ${error.message}`, 'error');
+      showMessage(`שגיאה: ${error.message}`, 'error');
       setCurrentScreen('uploadScreen');
     } finally {
       setIsLoading(false);
@@ -416,7 +483,7 @@ const ChatunoTech = () => {
   // Add Manual
   const addManualContact = () => {
     if (!manualPhone.trim() || manualPhone.trim().length < 9) {
-      showMessage('❌ אנא הזן מספר תקין', 'error');
+      showMessage('אנא הזן מספר תקין', 'error');
       return;
     }
 
@@ -429,7 +496,7 @@ const ChatunoTech = () => {
     };
 
     selectCandidate(newContact);
-    // 🔥 הוסר showMessage
+    showMessage('✅ מספר נוסף!', 'success');
   };
 
   // Search
@@ -463,12 +530,13 @@ const ChatunoTech = () => {
     setSearchInContacts('');
     setShowSuggestions(false);
     setSearchSuggestions([]);
-    // 🔥 הוסר showMessage
+    showMessage(`✅ נבחר: ${contact.name}`, 'success');
   };
 
-  // Next Guest - עם בדיקת מגבלה (תיקון קריטי)
+  // Next Guest - עם בדיקת מגבלה
   const nextGuest = async () => {
     if (isProcessingRef.current) {
+      console.log('⚠️ Already processing');
       return;
     }
 
@@ -479,37 +547,33 @@ const ChatunoTech = () => {
       return;
     }
 
-    // בדיקה אם נגמרו ההתאמות - **לפני** העדכון המקומי
     if (!currentUser.isPro && currentUser.remainingMatches <= 1) {
       isProcessingRef.current = true;
       setIsLoading(true);
       
-      // 1. עדכון מקומי 
+      showMessage('⏰ זו ההתאמה האחרונה שלך היום!', 'warning');
+      
       setMatchesUsedInSession(prev => prev + 1);
       setCurrentUser(prev => ({
         ...prev,
-        remainingMatches: 0 // מגיע ל-0
+        remainingMatches: 0
       }));
 
-      // 2. 🔥 קריאה אמינה ל-Backend לעדכון המונה ב-Google Sheets
       await completeSession();
       
-      // 3. מעבר למסך חסימה
       setTimeout(() => {
         setCurrentScreen('limitReached');
         isProcessingRef.current = false;
         setIsLoading(false);
-      }, 500); 
+      }, 2000);
       
       return;
     }
 
-    // נעילה
     isProcessingRef.current = true;
     setIsLoading(true);
 
     try {
-      // עדכון מקומי בלבד
       if (!currentUser.isPro) {
         setMatchesUsedInSession(prev => prev + 1);
         setCurrentUser(prev => ({
@@ -518,12 +582,10 @@ const ChatunoTech = () => {
         }));
       }
 
-      // מעבר למוזמן הבא
       const newIndex = currentGuestIndex + 1;
       if (newIndex < matchingResults.length) {
         setCurrentGuestIndex(newIndex);
       } else {
-        // סיום - עדכון Batch
         await completeSession();
         setCurrentScreen('successScreen');
       }
@@ -531,7 +593,6 @@ const ChatunoTech = () => {
     } catch (error) {
       showMessage('❌ שגיאה', 'error');
     } finally {
-      // שחרור הנעילה
       isProcessingRef.current = false;
       setIsLoading(false);
     }
@@ -564,17 +625,10 @@ const ChatunoTech = () => {
       }
       
       const data = await response.json();
-      // עדכון ה-remainingMatches ב-state המקומי מתוך ה-API
-      if (data.remaining_matches !== undefined) {
-          setCurrentUser(prev => ({
-              ...prev,
-              remainingMatches: data.remaining_matches
-          }));
-      }
+      console.log(`✅ Session completed: ${matchesUsedInSession} matches used, ${data.remaining_matches} remaining`);
       
     } catch (error) {
       console.error('❌ Complete session error:', error);
-      showMessage('❌ שגיאה בעדכון המגבלה בשרת', 'error');
     }
   };
 
@@ -582,9 +636,8 @@ const ChatunoTech = () => {
   const exportResults = async () => {
     try {
       setIsLoading(true);
-      // 🔥 הוסר showMessage
+      showMessage('📄 מכין קובץ...', 'success');
 
-      // עדכון Batch לפני ייצוא
       await completeSession();
 
       const response = await fetch(`${API_BASE_URL}/export-results`, {
@@ -613,6 +666,7 @@ const ChatunoTech = () => {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
+      showMessage('✅ קובץ יוצא בהצלחה!', 'success');
     } catch (error) {
       showMessage('❌ שגיאה בייצוא', 'error');
     } finally {
@@ -622,7 +676,7 @@ const ChatunoTech = () => {
 
   // Payment
   const payWithWhatsApp = () => {
-    // 🔥 הוסר showMessage
+    showMessage('מפנה לוואטסאפ...', 'success');
     
     const message = `שלום! אני רוצה לשדרג לפרימיום (39₪)
 📱 טלפון: ${currentUser.phone}
@@ -638,7 +692,7 @@ const ChatunoTech = () => {
   };
 
   const checkPaymentStatus = () => {
-    // 🔥 הוסר showMessage
+    showMessage('🔄 בודק תשלום...', 'success');
     
     const checkInterval = setInterval(async () => {
       try {
@@ -701,7 +755,7 @@ const ChatunoTech = () => {
     return Array.from(values);
   };
   
-  // רכיב חדש לטיפול בטיימר של מסך הטעינה (עם ספינר)
+  // Loading Screen
   const LoadingScreenWithTimer = () => {
     const [showWaitMessage, setShowWaitMessage] = useState(false);
 
@@ -719,25 +773,8 @@ const ChatunoTech = () => {
     return (
       <div style={{ textAlign: 'center' }}>
         <h2>⏳ מבצע מיזוג...</h2>
-        <div 
-            className="loading-spinner" 
-            style={{ 
-                border: '8px solid #f3f3f3', 
-                borderRadius: '50%', 
-                borderTop: '8px solid var(--primary-teal)', 
-                width: '60px', 
-                height: '60px', 
-                animation: 'spin 2s linear infinite',
-                margin: '20px auto'
-            }}
-        ></div>
+        <div className="loading-spinner"></div>
         <p>מנתח קבצים...</p>
-        <style>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}</style>
         <div 
           className="loading-tip-box"
           style={{ 
@@ -745,7 +782,7 @@ const ChatunoTech = () => {
             padding: '15px', 
             borderRadius: '10px',
             margin: '20px 0',
-            minHeight: '80px', 
+            minHeight: '80px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center'
@@ -773,20 +810,22 @@ const ChatunoTech = () => {
           <LandingPage onStart={() => setCurrentScreen('authScreen')} />
         )}
 
-        {/* Auth Screen */}
+        {/* Auth Screen (Combined for all 3 steps) */}
         {currentScreen === 'authScreen' && (
           <AuthScreen
+            authStep={authStep}
             phoneValue={phoneValue}
             setPhoneValue={setPhoneValue}
             fullNameValue={fullNameValue}
             setFullNameValue={setFullNameValue}
             codeValue={codeValue}
             setCodeValue={setCodeValue}
-            showCodeInput={showCodeInput}
             isLoading={isLoading}
             sendCode={sendCode}
             verifyCode={verifyCode}
+            saveFullName={saveFullName}
             backToPhoneScreen={backToPhoneScreen}
+            backToCodeScreen={backToCodeScreen}
           />
         )}
 
@@ -803,11 +842,10 @@ const ChatunoTech = () => {
             startMerge={startMerge}
             setShowContactsGuide={setShowContactsGuide}
             API_BASE_URL={API_BASE_URL}
-            onUpgradeClick={() => setCurrentScreen('limitReached')}
           />
         )}
 
-        {/* Loading Screen - משתמש ברכיב החדש */}
+        {/* Loading Screen */}
         {currentScreen === 'loadingScreen' && (
           <LoadingScreenWithTimer />
         )}
@@ -822,67 +860,82 @@ const ChatunoTech = () => {
           />
         )}
 
-        {/* Matching Screen - מבנה חדש ללא סיידבר וכפתורים כפולים */}
+        {/* Matching Screen */}
         {currentScreen === 'matchingScreen' && (
-          <>
-            <div className="app-header-status">
-                <h2>✅ אישור אנשי קשר</h2>
-                <LimitDisplay 
-                    currentUser={currentUser} 
-                    DAILY_LIMIT={DAILY_LIMIT} 
-                    onUpgradeClick={() => setCurrentScreen('limitReached')}
-                />
-            </div>
-          
-            <div className="matching-layout">
-                <div className="main-content">
-                  {(() => {
-                    const isFiltered = filters.side || filters.group;
-                    const resultsSource = isFiltered ? getFilteredResults() : matchingResults;
-                    const currentGuest = resultsSource[currentGuestIndex];
-                    
-                    if (!currentGuest) {
-                        return (
-                          <div style={{textAlign: 'center', padding: '50px'}}>
-                            <h3>אין מוזמנים לעבד</h3>
-                            <button className="btn btn-secondary" onClick={exportResults}>
-                              📥 הורד את מה שיש
-                            </button>
-                          </div>
-                        );
-                    }
+          <div className="matching-layout">
+            <MatchingSidebar
+              currentUser={currentUser}
+              DAILY_LIMIT={DAILY_LIMIT}
+              exportResults={exportResults}
+              isLoading={isLoading}
+              currentGuestIndex={currentGuestIndex}
+              filters={filters}
+              setFilters={setFilters}
+              getUniqueValues={getUniqueValues}
+              onUpgradeClick={() => setCurrentScreen('limitReached')}
+            />
 
-                    const isSelected = !!selectedContacts[currentGuest.guest];
+            <div className="main-content">
+              {(() => {
+                const filteredResults = getFilteredResults();
+                const currentGuest = filteredResults[currentGuestIndex] || matchingResults[currentGuestIndex];
+                
+                if (!currentGuest) {
+                  return <div>אין מוזמנים</div>;
+                }
 
-                    return (
-                      <>
-                        <GuestCard
-                          currentGuest={currentGuest}
-                          currentGuestIndex={currentGuestIndex}
-                          totalGuests={resultsSource.length}
-                          selectedContacts={selectedContacts}
-                          selectCandidate={selectCandidate}
-                          showAddContact={showAddContact}
-                          setShowAddContact={setShowAddContact}
-                          manualPhone={manualPhone}
-                          setManualPhone={setManualPhone}
-                          addManualContact={addManualContact}
-                          searchInContacts={searchInContacts}
-                          handleSearchInput={handleSearchInput}
-                          showSuggestions={showSuggestions}
-                          searchSuggestions={searchSuggestions}
-                          selectFromSuggestion={selectFromSuggestion}
-                          setSearchInContacts={setSearchInContacts}
-                          setShowSuggestions={setShowSuggestions}
-                          nextGuest={nextGuest}
-                          previousGuest={previousGuest}
-                        />
-                      </>
-                    );
-                  })()}
-                </div>
+                const isSelected = !!selectedContacts[currentGuest.guest];
+
+                return (
+                  <>
+                    <GuestCard
+                      currentGuest={currentGuest}
+                      currentGuestIndex={currentGuestIndex}
+                      totalGuests={filteredResults.length}
+                      selectedContacts={selectedContacts}
+                      selectCandidate={selectCandidate}
+                      showAddContact={showAddContact}
+                      setShowAddContact={setShowAddContact}
+                      manualPhone={manualPhone}
+                      setManualPhone={setManualPhone}
+                      addManualContact={addManualContact}
+                      searchInContacts={searchInContacts}
+                      handleSearchInput={handleSearchInput}
+                      showSuggestions={showSuggestions}
+                      searchSuggestions={searchSuggestions}
+                      selectFromSuggestion={selectFromSuggestion}
+                      setSearchInContacts={setSearchInContacts}
+                      setShowSuggestions={setShowSuggestions}
+                    />
+
+                    <div style={{ 
+                      marginTop: '30px', 
+                      display: 'flex', 
+                      gap: '15px', 
+                      justifyContent: 'center',
+                      flexWrap: 'wrap'
+                    }}>
+                      <button 
+                        className="btn btn-secondary"
+                        onClick={previousGuest}
+                        disabled={currentGuestIndex === 0 || isLoading}
+                      >
+                        ⬅️ הקודם
+                      </button>
+                      
+                      <button 
+                        className="btn btn-primary"
+                        onClick={nextGuest}
+                        disabled={!isSelected || isLoading}
+                      >
+                        {isLoading ? '⏳ מעבד...' : (currentGuestIndex === filteredResults.length - 1 ? '🎉 סיים' : 'הבא ➡️')}
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
-          </>
+          </div>
         )}
 
         {/* Success Screen */}
@@ -912,7 +965,7 @@ const ChatunoTech = () => {
           <ContactsGuideModal onClose={() => setShowContactsGuide(false)} />
         )}
 
-        {/* Phone Column Dialog - שאלה חכמה */}
+        {/* Phone Column Dialog */}
         {showPhoneColumnDialog && phoneColumnInfo && (
           <div style={{
             position: 'fixed',
@@ -958,6 +1011,7 @@ const ChatunoTech = () => {
                   onClick={() => {
                     setSkipFilledPhones(true);
                     setShowPhoneColumnDialog(false);
+                    showMessage('✅ נדלג על מוזמנים עם מספר קיים', 'success');
                   }}
                 >
                   ✅ כן, דלג על מי שיש מספר
@@ -968,6 +1022,7 @@ const ChatunoTech = () => {
                   onClick={() => {
                     setSkipFilledPhones(false);
                     setShowPhoneColumnDialog(false);
+                    showMessage('📝 נעדכן את כולם', 'success');
                   }}
                 >
                   📝 לא, עדכן את כולם
