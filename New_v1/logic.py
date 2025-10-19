@@ -226,87 +226,77 @@ def load_session_from_drive(gc, phone: str) -> dict:
         return None
 
 
-def save_files_to_drive(gc, phone: str, guests_file, contacts_file) -> dict:
+import io, os, json, logging
+from datetime import datetime
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+from google.oauth2 import service_account
+
+def save_files_to_drive(phone: str, guests_file, contacts_file) -> dict:
     """
-    שומר את הקבצים המקוריים ב-Drive
+    שומר את הקבצים המקוריים ב-Drive (Cloud Run Ready)
     """
     try:
-        drive_service = build('drive', 'v3', credentials=gc.auth)
-        
+        creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+        creds_dict = json.loads(creds_json)
+        creds = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=["https://www.googleapis.com/auth/drive.file"]
+        )
+
+        drive_service = build('drive', 'v3', credentials=creds)
+        parent_folder = os.getenv("DRIVE_PARENT_FOLDER_ID")
         folder_name = f"files_{phone}"
-        
-        # בדיקה אם תיקייה קיימת
-        if DRIVE_PARENT_FOLDER_ID:
-            query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        else:
-            query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        
-        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+
+        # יצירת תיקייה למשתמש אם לא קיימת
+        query = f"name='{folder_name}' and '{parent_folder}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        results = drive_service.files().list(q=query, fields="files(id)").execute()
         folders = results.get('files', [])
-        
-        if folders:
-            folder_id = folders[0]['id']
-        else:
-            # יצירת תיקייה חדשה
-            folder_metadata = {
+        folder_id = folders[0]['id'] if folders else None
+
+        if not folder_id:
+            metadata = {
                 'name': folder_name,
-                'mimeType': 'application/vnd.google-apps.folder'
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [parent_folder]
             }
-            if DRIVE_PARENT_FOLDER_ID:
-                folder_metadata['parents'] = [DRIVE_PARENT_FOLDER_ID]
-            
-            folder = drive_service.files().create(body=folder_metadata, fields='id').execute()
+            folder = drive_service.files().create(body=metadata, fields='id').execute()
             folder_id = folder.get('id')
-        
+
         saved_files = {}
-        
-        # שמירת קובץ מוזמנים
+
+        # העלאת קובץ מוזמנים
         if guests_file:
-            guests_content = guests_file.read()
-            guests_file.seek(0)
-            
-            file_metadata = {
+            guests_content = guests_file.file.read()
+            media = MediaIoBaseUpload(io.BytesIO(guests_content),
+                                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                      resumable=True)
+            metadata = {
                 'name': f"guests_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 'parents': [folder_id]
             }
-            media = MediaInMemoryUpload(
-                guests_content, 
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-            file = drive_service.files().create(
-                body=file_metadata, 
-                media_body=media, 
-                fields='id'
-            ).execute()
-            saved_files['guests_id'] = file.get('id')
-            logging.info(f"✅ Guests file saved: {file.get('id')}")
-        
-        # שמירת קובץ אנשי קשר
+            f = drive_service.files().create(body=metadata, media_body=media, fields='id').execute()
+            saved_files['guests_id'] = f.get('id')
+
+        # העלאת קובץ אנשי קשר
         if contacts_file and contacts_file != 'mobile_contacts':
-            contacts_content = contacts_file.read()
-            contacts_file.seek(0)
-            
-            file_metadata = {
+            contacts_content = contacts_file.file.read()
+            media = MediaIoBaseUpload(io.BytesIO(contacts_content),
+                                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                      resumable=True)
+            metadata = {
                 'name': f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 'parents': [folder_id]
             }
-            media = MediaInMemoryUpload(
-                contacts_content, 
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-            file = drive_service.files().create(
-                body=file_metadata, 
-                media_body=media, 
-                fields='id'
-            ).execute()
-            saved_files['contacts_id'] = file.get('id')
-            logging.info(f"✅ Contacts file saved: {file.get('id')}")
-            
+            f = drive_service.files().create(body=metadata, media_body=media, fields='id').execute()
+            saved_files['contacts_id'] = f.get('id')
+
         return saved_files
-        
+
     except Exception as e:
-        logging.error(f"Failed to save files to Drive: {e}")
+        logging.error(f"❌ Failed to save files to Drive: {e}")
         return {}
+
     
     
 def only_digits(s: str) -> str:
