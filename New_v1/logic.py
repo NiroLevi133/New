@@ -118,10 +118,6 @@ SUFFIX_TOKENS: Set[str] = {
 # ───────── עזרים בסיסיים ─────────
 
 
-
-# הערה: יש להניח ש-DRIVE_PARENT_FOLDER_ID זמין גלובלית ב-logic.py
-
-# [ב-logic.py, הפונקציה save_session_to_drive]
 def save_session_to_drive(gc, creds, phone: str, session_data: dict) -> str: # 🔥 חתימה שונה: מקבל creds
     """
     שומר את המצב של המשתמש ב-Google Drive

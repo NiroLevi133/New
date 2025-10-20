@@ -186,7 +186,22 @@ scheduler.start()
 # Helper to get worksheet (no change here)
 async def get_worksheet():
     try:
-        gc = get_google_client()
+        # 🔥 התיקון הקריטי: קריאה ל-get_google_client ופירוק תוצאת ה-Tuple 
+        gc_creds_tuple = get_google_client()
+        
+        if gc_creds_tuple is None:
+            logger.warning("⚠️ Skipping Sheets operation due to missing client.")
+            return None 
+
+        # 🔥 פירוק ה-Tuple: gc הוא gspread client, creds הוא Credentials
+        gc, creds = gc_creds_tuple 
+        sh = gc.open_by_key(GOOGLE_SHEET_ID)
+
+        if not GOOGLE_SHEET_ID:
+             logger.warning("⚠️ Skipping Sheets operation due to missing Sheet ID.")
+             return None
+            
+        # 🔥 שימוש נכון: gc הוא אובייקט gspread שיש לו את open_by_key
         sh = gc.open_by_key(GOOGLE_SHEET_ID)
         try:
             ws = sh.worksheet(GOOGLE_SHEET_NAME)
@@ -677,6 +692,11 @@ async def save_session_endpoint(data: dict):
     
     try:
         gc, creds = get_google_client()
+        if gc_creds_tuple is None:
+            logger.error("❌ Google Sheets/Drive client failed to initialize.")
+            raise HTTPException(500, "שגיאה פנימית: הקישור לשירותי Google נכשל")
+        
+        gc, creds = gc_creds_tuple
         
         # איסוף כל הנתונים לשמירה
         session_data = {
