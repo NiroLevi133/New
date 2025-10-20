@@ -1,20 +1,23 @@
+# ---- שלב 1: התקנת סביבת העבודה ----
 FROM python:3.11-slim
 
-# עבודה בתיקייה הראשית
+# יוצרים תיקייה לעבודה
 WORKDIR /app
 
-# העתקת כל הקבצים הדרושים
+# מעתיקים את הקובץ requirements.txt (שנמצא בשורש)
 COPY requirements.txt .
+
+# מתקינים את הספריות הנדרשות
 RUN pip install --no-cache-dir -r requirements.txt
 
-# העתקת תיקיית הבאקנד לתוך הקונטיינר
+# מעתיקים את תיקיית הבאקנד (שם יש את main.py וכל הקוד)
 COPY my-backend/ ./my-backend
 
-# מעבר לתיקיית הבאקנד (שם נמצא main.py)
+# נכנסים לתיקיית הבאקנד
 WORKDIR /app/my-backend
 
-# פתיחת פורט 8080
+# פותחים פורט 8080 (הנדרש על ידי Cloud Run)
 EXPOSE 8080
 
-# הרצת האפליקציה
+# מפעילים את השרת
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
