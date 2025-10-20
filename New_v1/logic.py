@@ -118,19 +118,17 @@ SUFFIX_TOKENS: Set[str] = {
 # ───────── עזרים בסיסיים ─────────
 
 
-def save_session_to_drive(gc, creds, phone: str, session_data: dict) -> str: # 🔥 חתימה שונה: מקבל creds
+def save_session_to_drive(creds, phone: str, session_data: dict) -> str:
     """
-    שומר את המצב של המשתמש ב-Google Drive
+    שומר את המצב של המשתמש ב-Google Drive.
     """
-    # ודא שיש import traceback, json, pickle, build, MediaInMemoryUpload
-    
     try:
-        # 🔥 שימוש ישיר ב-creds שהועבר (פותר את ה-AttributeError)
+        # ✅ התיקון: משתמש באובייקט Credentials (creds) שהועבר ישירות
         drive_service = build('drive', 'v3', credentials=creds) 
         
         folder_name = f"sessions_{phone}"
         
-        # ... (לוגיקה קיימת לחיפוש/יצירת התיקייה)
+        # --- לוגיקה ליצירת/איתור תיקייה ---
         if DRIVE_PARENT_FOLDER_ID:
             query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
         else:
@@ -153,18 +151,17 @@ def save_session_to_drive(gc, creds, phone: str, session_data: dict) -> str: # �
             folder = drive_service.files().create(body=folder_metadata, fields='id').execute()
             folder_id = folder.get('id')
         
-        # שמירת הסשן
+        # --- שמירת הסשן (Pickle) ---
         session_filename = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
         
-        # 🔥 ניקוי נתונים לפני Pickle (פותר שגיאות סריאליזציה)
+        # ניקוי נתונים לפני Pickle
         try:
             clean_data_json = json.dumps(session_data)
             clean_session_data = json.loads(clean_data_json)
-        except Exception as e:
-            logging.error(f"❌ JSON cleaning failed before pickle: {e}")
-            clean_session_data = session_data # ניסיון אחרון עם הנתונים המקוריים
+        except Exception:
+            clean_session_data = session_data 
         
-        pickled_data = pickle.dumps(clean_session_data) # 🔥 משתמש בנתונים הנקיים
+        pickled_data = pickle.dumps(clean_session_data)
         
         file_metadata = {
             'name': session_filename,
@@ -172,16 +169,14 @@ def save_session_to_drive(gc, creds, phone: str, session_data: dict) -> str: # �
         }
         
         media = MediaInMemoryUpload(pickled_data, mimetype='application/octet-stream')
-        logging.info(f"📂 Trying to save in folder: {folder_id}")
         file = drive_service.files().create(
             body=file_metadata, 
             media_body=media, 
             fields='id'
         ).execute()
         
-        about = drive_service.about().get(fields="user,emailAddress").execute()
-        logging.info(f"👤 Connected as: {about.get('emailAddress')}")
-
+        # בדיקת הרשאות חיבור - מוודא שה-Auth עובד
+        drive_service.about().get(fields="user,emailAddress").execute()
         
         logging.info(f"✅ Session saved for {phone}: {file.get('id')}")
         return file.get('id')
@@ -192,16 +187,17 @@ def save_session_to_drive(gc, creds, phone: str, session_data: dict) -> str: # �
         return None
 
 
-def load_session_from_drive(gc, phone: str) -> dict:
+def load_session_from_drive(creds, phone: str) -> dict:
     """
-    טוען את המצב האחרון של המשתמש מ-Google Drive
+    טוען את המצב האחרון של המשתמש מ-Google Drive.
     """
     try:
+        # ✅ התיקון: משתמש ב-creds שהועבר כארגומנט
         drive_service = build('drive', 'v3', credentials=creds)
         
         folder_name = f"sessions_{phone}"
         
-        # ... (לוגיקה קיימת לחיפוש תיקייה וקובץ אחרון)
+        # --- לוגיקה לאיתור הקובץ האחרון ---
         if DRIVE_PARENT_FOLDER_ID:
             query = f"name='{folder_name}' and '{DRIVE_PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
         else:
@@ -227,40 +223,33 @@ def load_session_from_drive(gc, phone: str) -> dict:
         if not files:
             return None
             
-        # הורדת הקובץ
+        # --- הורדת ופענוח הקובץ ---
         file_id = files[0]['id']
         request = drive_service.files().get_media(fileId=file_id)
         content = request.execute()
         
-        # פענוח
         session_data = pickle.loads(content)
         logging.info(f"✅ Session loaded for {phone}")
         return session_data
         
     except Exception as e:
         logging.error(f"❌ Failed to load session from Drive: {e}")
-        logging.error(traceback.format_exc()) # 🔥 הוספת Traceback
+        logging.error(traceback.format_exc())
         return None
 
 
-def save_files_to_drive(phone: str, guests_file, contacts_file) -> dict:
+def save_files_to_drive(creds, phone: str, guests_file, contacts_file) -> dict:
     """
-    שומר את הקבצים המקוריים ב-Drive (Cloud Run Ready)
+    שומר את הקבצים המקוריים ב-Drive.
     """
     try:
-        creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-        creds_dict = json.loads(creds_json)
-        creds = service_account.Credentials.from_service_account_info(
-            creds_dict,
-            # 🔥 תיקון קריטי: מעבר ל-Scope drive מלא
-            scopes=["https://www.googleapis.com/auth/drive"] 
-        )
-
+        # ✅ התיקון: משתמש ב-creds שהועבר כארגומנט
         drive_service = build('drive', 'v3', credentials=creds)
+        
         parent_folder = os.getenv("DRIVE_PARENT_FOLDER_ID")
         folder_name = f"files_{phone}"
 
-        # ... (לוגיקה קיימת ליצירת תיקיית משתמש)
+        # --- לוגיקה ליצירת/איתור תיקייה ---
         query = f"name='{folder_name}' and '{parent_folder}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
         results = drive_service.files().list(q=query, fields="files(id)").execute()
         folders = results.get('files', [])
@@ -277,11 +266,11 @@ def save_files_to_drive(phone: str, guests_file, contacts_file) -> dict:
 
         saved_files = {}
 
-        # העלאת קובץ מוזמנים
+        # --- העלאת קבצים ---
         if guests_file:
-            guests_file.file.seek(0) # 🔥 תיקון: החזרת הקורא להתחלה
+            guests_file.file.seek(0)
             guests_content = guests_file.file.read()
-            guests_file.file.seek(0) # החזרת הקורא שוב
+            guests_file.file.seek(0)
             
             media = MediaIoBaseUpload(io.BytesIO(guests_content),
                                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -294,11 +283,10 @@ def save_files_to_drive(phone: str, guests_file, contacts_file) -> dict:
             saved_files['guests_id'] = f.get('id')
             logging.info(f"✅ Guests file saved: {f.get('id')}")
 
-        # העלאת קובץ אנשי קשר
         if contacts_file and contacts_file != 'mobile_contacts':
-            contacts_file.file.seek(0) # 🔥 תיקון: החזרת הקורא להתחלה
+            contacts_file.file.seek(0)
             contacts_content = contacts_file.file.read()
-            contacts_file.file.seek(0) # החזרת הקורא שוב
+            contacts_file.file.seek(0)
             
             media = MediaIoBaseUpload(io.BytesIO(contacts_content),
                                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -315,7 +303,7 @@ def save_files_to_drive(phone: str, guests_file, contacts_file) -> dict:
 
     except Exception as e:
         logging.error(f"❌ Failed to save files to Drive: {e}")
-        logging.error(traceback.format_exc()) # 🔥 הדפסת Traceback
+        logging.error(traceback.format_exc())
         return {}
     
     
