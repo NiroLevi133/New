@@ -67,9 +67,6 @@ try:
         check_existing_phone_column,
         create_contacts_template,
         # 🔥 הפונקציות ב-logic.py צריכות עכשיו לקבל creds (או gc)
-        save_session_to_drive,
-        load_session_from_drive,
-        save_files_to_drive,
         create_guests_template,
         NAME_COL,
         PHONE_COL,
