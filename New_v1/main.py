@@ -19,6 +19,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 import pickle
 from pydantic import BaseModel
+from gcs_service import save_session_to_gcs, load_session_from_gcs, save_file_to_gcs
 
 # ============================================================
 #                    LOGGING SETUP
@@ -730,8 +731,8 @@ async def save_session_endpoint(data: dict):
         }
         
         # 🔥 קריאה לפונקציית ה-Drive: מעביר את 'creds'
-        session_id = save_session_to_drive(creds, phone, session_data) 
-        
+        session_id = save_session_to_gcs(session_data, phone)
+
         # בדיקה מיידית: אם הפונקציה החזירה None, זה כשל Drive API
         if session_id is None:
              raise Exception("DRIVE_SAVE_FAILED: Session ID returned null.")
@@ -781,7 +782,7 @@ async def load_session_endpoint(data: dict):
         gc, creds = gc_creds_tuple 
 
         # 🔥 התיקון הקריטי: העבר את אובייקט ה-creds לפונקציה ב-logic.py
-        session_data = load_session_from_drive(creds, phone) 
+        session_data = load_session_from_gcs(blob_name)
         
         if not session_data:
             return {
@@ -831,7 +832,11 @@ async def save_files_endpoint(
         gc, creds = gc_creds_tuple 
         
         # שמירת הקבצים. מעבירים את ה-creds כדי לאתחל Drive Service
-        saved = save_files_to_drive(creds, phone, guests_file, contacts_file) 
+        saved = {
+    "guests": save_file_to_gcs(phone, guests_file, "guests"),
+    "contacts": save_file_to_gcs(phone, contacts_file, "contacts"),
+}
+
         
         if not saved:
              raise Exception("Failed to save any file to Drive")
