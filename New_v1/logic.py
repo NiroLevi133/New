@@ -176,6 +176,7 @@ def save_session_to_drive(gc, creds, phone: str, session_data: dict) -> str: # ð
         }
         
         media = MediaInMemoryUpload(pickled_data, mimetype='application/octet-stream')
+        logging.info(f"ðŸ“‚ Trying to save in folder: {folder_id}")
         file = drive_service.files().create(
             body=file_metadata, 
             media_body=media, 
