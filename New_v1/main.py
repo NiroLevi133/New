@@ -1245,7 +1245,7 @@ async def webhook(request: Request):
 logger.info("✅ All routes defined")
 
 if __name__ == "__main__":
-    port = int(PORT)
+    port = int(os.environ.get("PORT", 8080))
     logger.info(f"🚀 Starting server on port {port}")
     uvicorn.run(
         app,
