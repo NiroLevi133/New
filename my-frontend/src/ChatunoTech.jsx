@@ -527,114 +527,106 @@ const resumeSession = () => {
   };
 
   // Merge
-  const startMerge = async () => {
-    if (!uploadedFiles.guests || !uploadedFiles.contacts) {
-      showMessage('אנא וודא שהקבצים הועלו', 'error');
-      return;
+const startMerge = async () => {
+  if (!uploadedFiles.guests || !uploadedFiles.contacts) {
+    showMessage('אנא וודא שהקבצים הועלו', 'error');
+    return;
+  }
+
+  if (!currentUser.isPro && currentUser.remainingMatches <= 0) {
+    showMessage(
+      `⏰ נגמרו ההתאמות. חזור בעוד ${formatResetTime(currentUser.hoursUntilReset)}`,
+      'warning'
+    );
+    setTimeout(() => setCurrentScreen('limitReached'), 2000);
+    return;
+  }
+
+  setCurrentScreen('loadingScreen');
+  setIsLoading(true);
+
+  try {
+    const formData = new FormData();
+    formData.append('guests_file', uploadedFiles.guests);
+    formData.append('phone', currentUser.phone);
+    formData.append('contacts_source', contactsSource);
+    formData.append('skip_filled_phones', skipFilledPhones ? 'true' : 'false');
+
+    if (contactsSource === 'mobile') {
+      const contactsBlob = new Blob([JSON.stringify(mobileContacts)], { type: 'application/json' });
+      formData.append('contacts_file', contactsBlob, 'mobile_contacts.json');
+    } else {
+      formData.append('contacts_file', uploadedFiles.contacts);
     }
 
-    if (!currentUser.isPro && currentUser.remainingMatches <= 0) {
-      showMessage(
-        `⏰ נגמרו ההתאמות. חזור בעוד ${formatResetTime(currentUser.hoursUntilReset)}`,
-        'warning'
-      );
-      setTimeout(() => setCurrentScreen('limitReached'), 2000);
-      return;
+    // ✅ שמירה ב־GCS לפני המיזוג
+    console.log("📁 שולח שמירה ל־/save-files...");
+    await fetch(`${API_BASE_URL}/save-files?phone=${currentUser.phone}`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    // ✅ עכשיו מבצע מיזוג
+    const response = await fetch(`${API_BASE_URL}/merge-files`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (response.status === 403) {
+      const errorData = await response.json();
+      if (errorData.error === 'daily_limit_exceeded') {
+        showMessage(`⏰ נגמרו ההתאמות`, 'warning');
+        setTimeout(() => setCurrentScreen('limitReached'), 3000);
+        return;
+      }
     }
-    
-    setCurrentScreen('loadingScreen');
-    setIsLoading(true);
 
-    try {
-      const formData = new FormData();
-      formData.append('guests_file', uploadedFiles.guests);
-      formData.append('phone', currentUser.phone);
-      formData.append('contacts_source', contactsSource);
-      formData.append('skip_filled_phones', skipFilledPhones ? 'true' : 'false'); 
-
-      if (contactsSource === 'mobile') {
-        const contactsBlob = new Blob([JSON.stringify(mobileContacts)], { type: 'application/json' });
-        formData.append('contacts_file', contactsBlob, 'mobile_contacts.json');
-      } else {
-        formData.append('contacts_file', uploadedFiles.contacts);
-      }
-
-      const response = await fetch(`${API_BASE_URL}/merge-files`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (response.status === 403) {
-        const errorData = await response.json();
-        if (errorData.error === 'daily_limit_exceeded') {
-          showMessage(
-            `⏰ נגמרו ההתאמות`,
-            'warning'
-          );
-          setTimeout(() => setCurrentScreen('limitReached'), 3000);
-          return;
-        }
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'שגיאה בעיבוד');
-      }
-
-      const data = await response.json();
-      setMatchingResults(data.results);
-      setFileHash(data.file_hash);
-      setAutoSelectedCount(data.auto_selected_count || 0);
-      setPerfectMatchesCount(data.perfect_matches_count || 0);
-      
-      const allContacts = extractAllContacts(data.results);
-      setAllContactsData(allContacts);
-      
-      setCurrentGuestIndex(0);
-      setMatchesUsedInSession(0);
-
-      const autoSelections = {};
-      data.results.forEach(result => {
-        if (result.auto_selected) {
-          autoSelections[result.guest] = result.auto_selected;
-        }
-      });
-
-      setSelectedContacts(autoSelections);
-
-      if (data.warning) {
-        showMessage(`⚠️ ${data.warning}`, 'warning');
-      }
-
-      if (data.perfect_matches_count > 0) {
-        showMessage(
-          `🎯 ${data.perfect_matches_count} התאמות מושלמות (100%)!`,
-          'success'
-        );
-      }
-
-      if (data.auto_selected_count > 0) {
-        showMessage(
-          `✨ ${data.auto_selected_count} מומלצים (93%+)`,
-          'success'
-        );
-      }
-
-      if (data.remaining_matches !== undefined) {
-        setCurrentUser(prev => ({
-          ...prev,
-          remainingMatches: data.remaining_matches
-        }));
-      }
-
-      setCurrentScreen('matchingScreen');
-    } catch (error) {
-      showMessage(`שגיאה: ${error.message}`, 'error');
-      setCurrentScreen('uploadScreen');
-    } finally {
-      setIsLoading(false);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || 'שגיאה בעיבוד');
     }
-  };
+
+    const data = await response.json();
+    setMatchingResults(data.results);
+    setFileHash(data.file_hash);
+    setAutoSelectedCount(data.auto_selected_count || 0);
+    setPerfectMatchesCount(data.perfect_matches_count || 0);
+
+    const allContacts = extractAllContacts(data.results);
+    setAllContactsData(allContacts);
+
+    setCurrentGuestIndex(0);
+    setMatchesUsedInSession(0);
+
+    const autoSelections = {};
+    data.results.forEach(result => {
+      if (result.auto_selected) {
+        autoSelections[result.guest] = result.auto_selected;
+      }
+    });
+
+    setSelectedContacts(autoSelections);
+
+    if (data.warning) {
+      showMessage(`⚠️ ${data.warning}`, 'warning');
+    }
+
+    if (data.remaining_matches !== undefined) {
+      setCurrentUser(prev => ({
+        ...prev,
+        remainingMatches: data.remaining_matches
+      }));
+    }
+
+    setCurrentScreen('matchingScreen');
+  } catch (error) {
+    showMessage(`שגיאה: ${error.message}`, 'error');
+    setCurrentScreen('uploadScreen');
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   // Select Candidate
   const selectCandidate = (candidate) => {
