@@ -13,6 +13,7 @@ import traceback
 import gc
 from apscheduler.schedulers.background import BackgroundScheduler
 import json
+import os
 from dotenv import load_dotenv
 load_dotenv()
 from googleapiclient.discovery import build
@@ -36,7 +37,6 @@ logger.info("🚀 Starting Guest Matcher API v5.1 - AUTH REFACTOR...")
 #                    IMPORTS
 # ============================================================
 try:
-    import os
     import re
     import hashlib
     import random
