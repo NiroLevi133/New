@@ -197,7 +197,7 @@ def load_session_from_drive(gc, phone: str) -> dict:
     טוען את המצב האחרון של המשתמש מ-Google Drive
     """
     try:
-        drive_service = build('drive', 'v3', credentials=gc.auth)
+        drive_service = build('drive', 'v3', credentials=creds)
         
         folder_name = f"sessions_{phone}"
         

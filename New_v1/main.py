@@ -65,6 +65,7 @@ try:
         export_with_original_structure,
         check_existing_phone_column,
         create_contacts_template,
+        # 🔥 הפונקציות ב-logic.py צריכות עכשיו לקבל creds (או gc)
         save_session_to_drive,
         load_session_from_drive,
         save_files_to_drive,
@@ -72,9 +73,9 @@ try:
         NAME_COL,
         PHONE_COL,
         AUTO_SELECT_TH,
-        format_phone, # נשאר
-        normalize, # נשאר
-        reason_for, # נשאר
+        format_phone,
+        normalize,
+        reason_for,
     )
     LOGIC_AVAILABLE = True
     
@@ -137,14 +138,20 @@ logger.info("✅ Configuration complete")
 #                    GOOGLE SHEETS FUNCTIONS (MODIFIED)
 # ============================================================
 
-# Helper to get Google client (no change here)
 def get_google_client():
+    """
+    Get cached Google Sheets client.
+    Returns (gspread_client, credentials) or (None, None) on failure.
+    """
     global _google_client
     global _google_credentials
     if _google_client is not None and _google_credentials is not None:
         return _google_client, _google_credentials
+        
     if not GOOGLE_CREDENTIALS_JSON:
-        raise Exception("Google credentials not configured")
+        logger.error("❌ Google credentials not configured. Sheets/Drive functionality disabled.")
+        return None, None # 🔥 התיקון הקריטי: מחזיר None במקום להעלות חריגה
+        
     try:
         creds_info = json.loads(GOOGLE_CREDENTIALS_JSON)
         SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -155,24 +162,33 @@ def get_google_client():
         _google_credentials = credentials
         logger.info("✅ Google Sheets client and credentials created")
         return _google_client, _google_credentials
-
+    
     except Exception as e:
-        logger.error(f"❌ Google Sheets failed: {e}")
-        raise
+        logger.error(f"❌ Google Sheets client failed: {e}")
+        return None, None # 🔥 מחזיר None גם בכשל חיבור
 
 # פונקציה לניקוי קבצים ישנים
 async def cleanup_old_sessions():
     """מנקה סשנים וקבצים ישנים מ-30 יום"""
     try:
-        gc = get_google_client()
+        gc_creds_tuple = get_google_client() 
+        if gc_creds_tuple is None:
+             logger.warning("⚠️ Cleanup skipped: Drive client not available.")
+             return
+        
+        # 🔥 תיקון: משתמשים באובייקט creds
+        gc, creds = gc_creds_tuple 
+        drive_service = build('drive', 'v3', credentials=creds) 
+        
         cutoff_date = (datetime.now() - timedelta(days=30)).isoformat()
         
         # חיפוש וניקוי קבצים ישנים
         query = f"modifiedTime < '{cutoff_date}' and name contains 'guest_matcher_sessions'"
-        results = gc.files().list(q=query, fields="files(id, name)").execute()
+        # משתמשים ב-drive_service שנוצר
+        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
         
         for file in results.get('files', []):
-            gc.files().delete(fileId=file['id']).execute()
+            drive_service.files().delete(fileId=file['id']).execute()
             logger.info(f"Deleted old session: {file['name']}")
             
     except Exception as e:
@@ -183,26 +199,21 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(cleanup_old_sessions, 'interval', days=1)
 scheduler.start()
 
-# Helper to get worksheet (no change here)
+# Helper to get worksheet (FIXED)
 async def get_worksheet():
     try:
-        # 🔥 התיקון הקריטי: קריאה ל-get_google_client ופירוק תוצאת ה-Tuple 
+        # 🔥 קריאה ל-get_google_client ופירוק תוצאת ה-Tuple 
         gc_creds_tuple = get_google_client()
         
-        if gc_creds_tuple is None:
-            logger.warning("⚠️ Skipping Sheets operation due to missing client.")
+        if gc_creds_tuple is None or not GOOGLE_SHEET_ID:
+            logger.warning("⚠️ Skipping Sheets operation due to missing client or Sheet ID.")
             return None 
 
         # 🔥 פירוק ה-Tuple: gc הוא gspread client, creds הוא Credentials
         gc, creds = gc_creds_tuple 
+        
         sh = gc.open_by_key(GOOGLE_SHEET_ID)
 
-        if not GOOGLE_SHEET_ID:
-             logger.warning("⚠️ Skipping Sheets operation due to missing Sheet ID.")
-             return None
-            
-        # 🔥 שימוש נכון: gc הוא אובייקט gspread שיש לו את open_by_key
-        sh = gc.open_by_key(GOOGLE_SHEET_ID)
         try:
             ws = sh.worksheet(GOOGLE_SHEET_NAME)
         except:
@@ -214,12 +225,14 @@ async def get_worksheet():
                 'is_premium', 'last_session_id', 'files_saved', 'session_data'
             ]
             ws.update('A1:L1', [headers])
+            logger.info(f"✅ Created worksheet: {GOOGLE_SHEET_NAME}")
+
         return ws
     except Exception as e:
         logger.error(f"❌ Worksheet error: {e}")
         return None
 
-# Helper to map row to dict
+# Helper to map row to dict (NO CHANGE)
 def _map_row_to_user_data(row: List[str], headers: List[str]) -> Dict[str, Any]:
     """Maps a Google Sheet row to a user data dictionary."""
     data = dict(zip(headers, row))
@@ -234,7 +247,7 @@ def _map_row_to_user_data(row: List[str], headers: List[str]) -> Dict[str, Any]:
     
     return data
 
-# 🔥 NEW: Finds user and prepares data (Centralized Logic)
+# 🔥 NEW: Finds user and prepares data (Centralized Logic) (NO CHANGE)
 async def find_user_data(phone: str) -> Optional[Dict[str, Any]]:
     """Finds user data and their row index, handles date format flexibility."""
     try:
@@ -260,7 +273,7 @@ async def find_user_data(phone: str) -> Optional[Dict[str, Any]]:
         logger.error(f"❌ find_user_data failed: {e}")
         return None
 
-# 🔥 NEW: Updates a user's sheet data (flexible update)
+# 🔥 NEW: Updates a user's sheet data (flexible update) (NO CHANGE)
 async def update_user_sheet(phone: str, **kwargs):
     """Updates specific columns for a user."""
     if not GOOGLE_SHEET_ID:
@@ -297,7 +310,7 @@ async def update_user_sheet(phone: str, **kwargs):
         logger.error(f"❌ update_user_sheet failed: {e}")
 
 
-# 🔥 MODIFIED: Handles user creation and reset logic
+# 🔥 MODIFIED: Handles user creation and reset logic (NO CHANGE)
 async def check_and_reset_user(phone: str) -> Dict[str, Any]:
     """בודק אם עברו 24 שעות ומאפס, ומחזיר את כל נתוני המשתמש."""
     user_data = await find_user_data(phone)
@@ -353,7 +366,7 @@ async def check_and_reset_user(phone: str) -> Dict[str, Any]:
     
     return user_data
 
-# 🔥 MODIFIED: Handles user creation/update (D & B)
+# 🔥 MODIFIED: Handles user creation/update (D & B) (NO CHANGE)
 async def log_or_create_user(phone: str, full_name: Optional[str] = None) -> Dict[str, Any]:
     """
     בודק האם המשתמש קיים.
@@ -411,7 +424,7 @@ async def log_or_create_user(phone: str, full_name: Optional[str] = None) -> Dic
     return user_data
 
 
-# 🔥 MODIFIED: Batch update user (F)
+# 🔥 MODIFIED: Batch update user (F) (NO CHANGE)
 async def batch_update_user(phone: str, matches_used: int):
     """
     מעדכן Batch - מעדכן את 'daily_matches_used' ואת 'last_activity'.
@@ -449,7 +462,7 @@ async def batch_update_user(phone: str, matches_used: int):
         return 0
 
 # ============================================================
-#                    HELPER FUNCTIONS
+#                    HELPER FUNCTIONS (NO CHANGE)
 # ============================================================
 
 def format_phone_for_whatsapp(phone: str) -> str:
@@ -522,7 +535,7 @@ def format_time_until_reset(hours: float) -> str:
         return f"{minutes_int} דקות"
 
 # ============================================================
-#                    FASTAPI APP
+#                    FASTAPI APP (NO CHANGE)
 # ============================================================
 
 app = FastAPI(
@@ -590,7 +603,8 @@ async def send_code_endpoint(data: SendCodeRequest, request: Request):
         await log_or_create_user(phone, full_name=None)
     except Exception as e:
         logger.error(f"❌ DB Error during send-code: {e}")
-        raise HTTPException(500, "Internal server error during user setup")
+        # אם ה-DB נכשל (למשל, אין קרדנשלס), יש להחזיר שגיאת 500
+        raise HTTPException(500, "Internal server error during user setup (DB/Sheets access failed)")
 
     # Send OTP Logic
     formatted_phone = format_phone_for_whatsapp(phone)
@@ -687,16 +701,18 @@ async def save_session_endpoint(data: dict):
     if not phone:
         raise HTTPException(400, "Phone required")
     
-    # 🔥 הגדרת session_id כ-None כדי לזהות כשל בהמשך
     session_id = None 
     
     try:
-        gc, creds = get_google_client()
+        # 🔥 קריאה שמצפה ל-Tuple
+        gc_creds_tuple = get_google_client()
+
+        # 🔥 התיקון הקריטי: בדיקה האם הלקוח נוצר בהצלחה
         if gc_creds_tuple is None:
             logger.error("❌ Google Sheets/Drive client failed to initialize.")
             raise HTTPException(500, "שגיאה פנימית: הקישור לשירותי Google נכשל")
-        
-        gc, creds = gc_creds_tuple
+
+        gc, creds = gc_creds_tuple 
         
         # איסוף כל הנתונים לשמירה
         session_data = {
@@ -713,12 +729,12 @@ async def save_session_endpoint(data: dict):
             "matches_used_in_session": data.get("matches_used_in_session", 0)
         }
         
-        # 🔥 קריאה לפונקציית ה-Drive
-        session_id = save_session_to_drive(gc, creds, phone, session_data)
-        # 🔥 בדיקה מיידית: אם הפונקציה החזירה None, זה כשל Drive API
+        # 🔥 קריאה לפונקציית ה-Drive: מעביר את 'creds'
+        session_id = save_session_to_drive(creds, phone, session_data) 
+        
+        # בדיקה מיידית: אם הפונקציה החזירה None, זה כשל Drive API
         if session_id is None:
-            # במקום להמשיך, זרוק שגיאה חריגה
-            raise Exception("DRIVE_SAVE_FAILED: Session ID returned null.")
+             raise Exception("DRIVE_SAVE_FAILED: Session ID returned null.")
         
         # עדכון ב-Google Sheets
         await update_user_sheet(
@@ -734,29 +750,38 @@ async def save_session_endpoint(data: dict):
         }
         
     except HTTPException:
-        # מטפל בשגיאות HTTP שכבר נזרקו
         raise
     except Exception as e:
-        # זהו הבלוק שילכוד את שגיאת ה-Drive API וידפיס את ה-Traceback המלא
         logger.error(f"❌ CRITICAL SAVE ERROR: {e}")
         logger.error(traceback.format_exc())
-        # 🔥 מחזיר שגיאת 500 ברורה ל-Frontend
         raise HTTPException(500, f"Failed to save session due to internal error: {str(e)}")
 
 
 # Endpoint לטעינת סשן
 @app.post("/load-session")
 async def load_session_endpoint(data: dict):
-    """טוען את הסשן האחרון של המשתמש"""
+    """טוען את הסשן האחרון של המשתמש (FIXED)"""
     phone = data.get("phone")
     if not phone:
         raise HTTPException(400, "Phone required")
     
     try:
-        gc = get_google_client()
+        # 🔥 קריאה שמצפה ל-Tuple
+        gc_creds_tuple = get_google_client()
         
-        # טעינת הסשן האחרון
-        session_data = load_session_from_drive(gc, phone)
+        # 🔥 התיקון: בדיקה האם הלקוח נוצר
+        if gc_creds_tuple is None:
+             logger.warning("⚠️ Load session failed: Drive client not initialized.")
+             return {
+                "status": "error",
+                "message": "שגיאה פנימית: הקישור לשירותי Google נכשל"
+            }
+            
+        # 🔥 פירוק ה-Tuple (חשוב כדי להשיג את creds)
+        gc, creds = gc_creds_tuple 
+
+        # 🔥 התיקון הקריטי: העבר את אובייקט ה-creds לפונקציה ב-logic.py
+        session_data = load_session_from_drive(creds, phone) 
         
         if not session_data:
             return {
@@ -765,7 +790,7 @@ async def load_session_endpoint(data: dict):
             }
         
         # בדיקה אם הסשן עדיין רלוונטי (פחות מ-7 ימים)
-        session_time = datetime.fromisoformat(session_data.get('timestamp', ''))
+        session_time = datetime.fromisoformat(session_data.get('timestamp', '2000-01-01T00:00:00'))
         if (datetime.now() - session_time).days > 7:
             return {
                 "status": "expired",
@@ -779,13 +804,13 @@ async def load_session_endpoint(data: dict):
         }
         
     except Exception as e:
-        logger.error(f"Load session error: {e}")
+        logger.error(f"❌ Load session error: {e}")
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
-            "message": str(e)
+            "message": "שגיאה בטעינת סשן"
         }
 
-# Endpoint לשמירת קבצים
 @app.post("/save-files")
 async def save_files_endpoint(
     guests_file: UploadFile = File(...),
@@ -797,10 +822,19 @@ async def save_files_endpoint(
         raise HTTPException(400, "Phone required")
     
     try:
-        gc = get_google_client()
+        # 🔥 קריאה שמצפה ל-Tuple
+        gc_creds_tuple = get_google_client()
+
+        if gc_creds_tuple is None:
+            raise HTTPException(500, "שגיאה: קישור ל-Google Drive נכשל")
         
-        # שמירת הקבצים
-        saved = save_files_to_drive(gc, phone, guests_file, contacts_file)
+        gc, creds = gc_creds_tuple 
+        
+        # שמירת הקבצים. מעבירים את ה-creds כדי לאתחל Drive Service
+        saved = save_files_to_drive(creds, phone, guests_file, contacts_file) 
+        
+        if not saved:
+             raise Exception("Failed to save any file to Drive")
         
         return {
             "status": "success",
@@ -809,7 +843,7 @@ async def save_files_endpoint(
         }
         
     except Exception as e:
-        logger.error(f"Save files error: {e}")
+        logger.error(f"❌ Save files error: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(500, f"Failed to save files: {str(e)}")
     
