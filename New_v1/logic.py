@@ -183,6 +183,10 @@ def save_session_to_drive(gc, creds, phone: str, session_data: dict) -> str: # �
             fields='id'
         ).execute()
         
+        about = drive_service.about().get(fields="user,emailAddress").execute()
+        logging.info(f"👤 Connected as: {about.get('emailAddress')}")
+
+        
         logging.info(f"✅ Session saved for {phone}: {file.get('id')}")
         return file.get('id')
         
