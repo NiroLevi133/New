@@ -46,3 +46,7 @@ gcp_credentials.json
 *.crt
 *.env
 .env.local
+
+# Protect backend secrets
+my-backend/.env
+my-backend/service-account.json
