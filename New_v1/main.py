@@ -117,6 +117,7 @@ pending_codes: Dict[str, Dict[str, Any]] = {}
 rate_limit_tracker: Dict[str, list] = {}
 user_sessions: Dict[str, Dict[str, Any]] = {}
 _google_client = None
+_google_credentials = None
 
 # Pydantic Schemas for validation
 class SendCodeRequest(BaseModel):
@@ -139,8 +140,9 @@ logger.info("✅ Configuration complete")
 # Helper to get Google client (no change here)
 def get_google_client():
     global _google_client
-    if _google_client is not None:
-        return _google_client
+    global _google_credentials
+    if _google_client is not None and _google_credentials is not None:
+        return _google_client, _google_credentials
     if not GOOGLE_CREDENTIALS_JSON:
         raise Exception("Google credentials not configured")
     try:
@@ -150,7 +152,10 @@ def get_google_client():
             creds_info, scopes=SCOPES
         )
         _google_client = gspread.authorize(credentials)
-        return _google_client
+        _google_credentials = credentials
+        logger.info("✅ Google Sheets client and credentials created")
+        return _google_client, _google_credentials
+
     except Exception as e:
         logger.error(f"❌ Google Sheets failed: {e}")
         raise
@@ -667,8 +672,11 @@ async def save_session_endpoint(data: dict):
     if not phone:
         raise HTTPException(400, "Phone required")
     
+    # 🔥 הגדרת session_id כ-None כדי לזהות כשל בהמשך
+    session_id = None 
+    
     try:
-        gc = get_google_client()
+        gc, creds = get_google_client()
         
         # איסוף כל הנתונים לשמירה
         session_data = {
@@ -685,8 +693,12 @@ async def save_session_endpoint(data: dict):
             "matches_used_in_session": data.get("matches_used_in_session", 0)
         }
         
-        # שמירת הסשן
-        session_id = save_session_to_drive(gc, phone, session_data)
+        # 🔥 קריאה לפונקציית ה-Drive
+        session_id = save_session_to_drive(gc, creds, phone, session_data)
+        # 🔥 בדיקה מיידית: אם הפונקציה החזירה None, זה כשל Drive API
+        if session_id is None:
+            # במקום להמשיך, זרוק שגיאה חריגה
+            raise Exception("DRIVE_SAVE_FAILED: Session ID returned null.")
         
         # עדכון ב-Google Sheets
         await update_user_sheet(
@@ -701,10 +713,16 @@ async def save_session_endpoint(data: dict):
             "message": "הסשן נשמר בהצלחה"
         }
         
+    except HTTPException:
+        # מטפל בשגיאות HTTP שכבר נזרקו
+        raise
     except Exception as e:
-        logger.error(f"Save session error: {e}")
+        # זהו הבלוק שילכוד את שגיאת ה-Drive API וידפיס את ה-Traceback המלא
+        logger.error(f"❌ CRITICAL SAVE ERROR: {e}")
         logger.error(traceback.format_exc())
-        raise HTTPException(500, f"Failed to save session: {str(e)}")
+        # 🔥 מחזיר שגיאת 500 ברורה ל-Frontend
+        raise HTTPException(500, f"Failed to save session due to internal error: {str(e)}")
+
 
 # Endpoint לטעינת סשן
 @app.post("/load-session")
