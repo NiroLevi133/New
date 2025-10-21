@@ -55,6 +55,11 @@ const UploadScreen = ({
         <LimitDisplay currentUser={currentUser} DAILY_LIMIT={DAILY_LIMIT} onUpgradeClick={onUpgradeClick} />
       </div>
       
+      {/* 🔥 הוספת הודעת קבלת הפנים */}
+      <h3 style={{ textAlign: 'center', color: 'var(--primary-teal)', marginBottom: '15px' }}>
+        ברוכה הבאה {currentUser.fullName}!
+      </h3>
+      
       <p style={{ textAlign: 'center', color: '#555', marginBottom: '25px' }}>
         שלב 1 מתוך 2: העלה את שני הקבצים כדי להתחיל במיזוג.
       </p>

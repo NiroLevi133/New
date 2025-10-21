@@ -369,15 +369,14 @@ async def log_or_create_user(phone: str, full_name: Optional[str] = None) -> Dic
     """
     בודק האם המשתמש קיים.
     אם לא: יוצר שורה חדשה עם 'join_date' (דרישה D).
-    אם כן: מעדכן 'last_activity' ואת 'full_name' רק אם הוא ריק (דרישה B).
-    מחזיר את נתוני המשתמש המעודכנים.
+    אם כן: מעדכן 'full_name' רק אם הוא ריק.
     """
     user_data = await find_user_data(phone)
-    now = datetime.now().strftime("%d/%m/%y %H:%M")
+    now = datetime.now().strftime("%d/%m/%y %H:%M") # רק לצורך join_date
     
     if user_data:
-        # המשתמש קיים - עדכון last_activity ו-full_name אם ריק (דרישה B & E)
-        updates = {'last_activity': now}
+        # המשתמש קיים - עדכון full_name רק אם ריק (דרישה B)
+        updates = {}
         
         is_name_set = user_data.get('full_name', '').strip() != ''
         if full_name and not is_name_set:
@@ -385,8 +384,9 @@ async def log_or_create_user(phone: str, full_name: Optional[str] = None) -> Dic
             user_data['full_name'] = full_name # עדכון ה-dict המוחזר
             
         if updates:
+            # 🔥 הסרנו את עדכון 'last_activity' מכאן!
             await update_user_sheet(phone, **updates)
-            logger.info(f"✅ Updated user (log-in): {phone}")
+            logger.info(f"✅ Updated user (name only): {phone}")
         
     else:
         # משתמש חדש - יצירת שורה (דרישה D & E)
@@ -404,7 +404,7 @@ async def log_or_create_user(phone: str, full_name: Optional[str] = None) -> Dic
             full_name or "", # full_name יכול להיות ריק בכניסה ראשונה
             phone,
             now, # join_date (דרישה D)
-            now, # last_activity (דרישה E)
+            now, # last_activity (משמש כברירת מחדל ל-join_date)
             0,
             "", "", # current_file_hash, current_progress (לא בשימוש ב-Frontend)
             'FALSE'
@@ -669,11 +669,12 @@ async def verify_code_endpoint(data: VerifyCodeRequest):
         if stored_code == code:
             pending_codes.pop(phone, None)
             
-            # 🔥 חדש: עדכון last_activity מיד לאחר האימות וקבלת נתונים
+            # 🔥 עדכון: משיכת נתוני משתמש ובדיקת איפוס יומי.
+            # last_activity לא מתעדכן בשלב זה, אלא רק ב-complete-session.
             user_data = await log_or_create_user(phone, full_name=None)
             user_stats = await check_and_reset_user(phone)
             
-            # 🔥 חדש: בדיקה אם השם המלא ריק (דרישה B)
+            # 🔥 בדיקה אם השם המלא ריק (דרישה B)
             if user_data.get('full_name', '').strip() == '':
                 logger.info(f"➡️ User {phone} verified, requires name input.")
                 return {"status": "NAME_REQUIRED"}

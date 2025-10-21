@@ -63,16 +63,29 @@ def load_session_from_gcs(blob_name: str) -> dict | None:
 
 def save_file_to_gcs(phone: str, file_obj, file_type: str) -> str | None:
     """
-    שומר קובץ (Excel/CSV) ב־GCS בתיקייה files_<phone>
+    שומר קובץ (Excel/CSV) ב־GCS בתיקייה files_<phone>/YYYYMMDD_HHMMSS/
     """
     try:
         if not GCS_BUCKET:
+            logging.error("❌ GCS_BUCKET environment variable not set")
             raise ValueError("GCS_BUCKET environment variable not set")
 
         bucket = client.bucket(GCS_BUCKET)
-        blob_name = f"files_{phone}/{file_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        # 🔥 יצירת תיקיית סשן ייחודית: כוללת תאריך (D) ושעה (H).
+        now_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # הנתיב הוא: files_0507676706/20251021_181446/contacts.xlsx
+        blob_name = f"files_{phone}/{now_str}/{file_type}.xlsx"
+        
+        # --- לוגים לבדיקה ---
+        logging.info(f"💾 DEBUG GCS: Bucket={GCS_BUCKET}")
+        logging.info(f"💾 DEBUG GCS: Time Folder={now_str}")
+        logging.info(f"💾 DEBUG GCS: Full Blob Path={blob_name}")
+        # --------------------
+        
         blob = bucket.blob(blob_name)
 
+        # הקוד הזה עובד ב-GCS כיוון שהוא מפרש את ה-`/` כהפרדה לתיקייה
         file_obj.file.seek(0)
         blob.upload_from_file(file_obj.file, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
