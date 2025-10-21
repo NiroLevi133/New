@@ -301,21 +301,29 @@ def load_excel_flexible(file) -> pd.DataFrame:
             standard_df[PHONE_COL] = df.iloc[:, 0].astype(str).str.strip()
             standard_df[NAME_COL] = df.iloc[:, 2].astype(str).str.strip()
         else:
-            print("👰 Guests file")
+            print("👰 Guests file - Processing all relevant columns")
+            
             column_mapping = smart_column_mapping(df)
-            relevant_fields = identify_relevant_fields(df)
             
+            # 1. ADD CORE FIELDS (NAME, PHONE, COUNT)
+            
+            # a. NAME_COL
             standard_df[NAME_COL] = _resolve_full_name_series(df)
+            name_col_used = [col for col, type_val in column_mapping.items() if type_val == 'name'][0] if [col for col, type_val in column_mapping.items() if type_val == 'name'] else None
             
+            # b. PHONE_COL
             phone_cols = [col for col, type_val in column_mapping.items() if type_val == 'phone']
-            if phone_cols:
-                standard_df[PHONE_COL] = df[phone_cols[0]].astype(str).str.strip()
+            phone_col_used = phone_cols[0] if phone_cols else None
+            if phone_col_used:
+                standard_df[PHONE_COL] = df[phone_col_used].astype(str).str.strip()
             else:
                 standard_df[PHONE_COL] = ""
             
+            # c. COUNT_COL
             count_cols = [col for col, type_val in column_mapping.items() if type_val == 'count']
-            if count_cols:
-                counts_raw = df[count_cols[0]].astype(str)
+            count_col_used = count_cols[0] if count_cols else None
+            if count_col_used:
+                counts_raw = df[count_col_used].astype(str)
                 counts_num = pd.to_numeric(
                     counts_raw.str.extract(r"(\d+)")[0], 
                     errors="coerce"
@@ -324,16 +332,37 @@ def load_excel_flexible(file) -> pd.DataFrame:
             else:
                 standard_df[COUNT_COL] = 1
             
-            for display_name, col_name in relevant_fields.items():
-                if col_name in df.columns:
-                    standard_df[display_name] = df[col_name].astype(str).fillna("")
-        
-        if COUNT_COL not in standard_df.columns:
-            standard_df[COUNT_COL] = 1
-        if SIDE_COL not in standard_df.columns:
-            standard_df[SIDE_COL] = ""
-        if GROUP_COL not in standard_df.columns:
-            standard_df[GROUP_COL] = ""
+            # 2. ADD ALL OTHER FIELDS FOR DISPLAY (e.g., 'צד', 'קבוצה', 'כמה כסף?')
+            raw_columns = list(df.columns)
+            
+            for col in raw_columns:
+                # מזהה את העמודות המקוריות ששימשו לשדות הראשיים
+                is_core_field = (
+                    col == name_col_used or 
+                    col == phone_col_used or 
+                    col == count_col_used
+                )
+                
+                # אם העמודה לא שומשה לשדה ראשי ועדיין לא קיימת ב-standard_df, נוסיף אותה
+                if not is_core_field and col not in standard_df.columns:
+                    standard_df[col] = df[col].astype(str).fillna("")
+            
+            # 3. ENSURE FILTER COLUMNS (SIDE_COL, GROUP_COL) EXIST FOR FILTERING 
+            
+            if SIDE_COL not in standard_df.columns:
+                 side_cols_used = [col for col, type_val in column_mapping.items() if type_val == 'side']
+                 if side_cols_used:
+                    # מוסיף את השדה לצורך סינון (גם אם הוא כבר קיים בשם המקורי שלו)
+                    standard_df[SIDE_COL] = df[side_cols_used[0]].astype(str).fillna("") 
+                 else:
+                    standard_df[SIDE_COL] = ""
+            
+            if GROUP_COL not in standard_df.columns:
+                 group_cols_used = [col for col, type_val in column_mapping.items() if type_val == 'group']
+                 if group_cols_used:
+                    standard_df[GROUP_COL] = df[group_cols_used[0]].astype(str).fillna("")
+                 else:
+                    standard_df[GROUP_COL] = ""
         
         standard_df["norm_name"] = standard_df[NAME_COL].map(normalize)
         standard_df = standard_df[standard_df["norm_name"].str.strip() != ""]
@@ -553,7 +582,7 @@ def process_matching_results(guests_df: pd.DataFrame, contacts_df: pd.DataFrame,
             auto_selected = candidates[0]
         
         raw_details = extract_relevant_guest_details(guest_row)
-        guest_details = extract_smart_fields(raw_details)
+        guest_details = raw_details #  כל השדות נשלחים 
         
         result = {
             "guest": guest_name,

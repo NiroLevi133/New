@@ -943,7 +943,7 @@ const startMerge = async () => {
     }, []);
 
     const initialTip = '💡 <strong>טיפ:</strong> מומלץ לאחד קבצי אנשי קשר של החתן, הכלה והמשפחה לקובץ אחד לדיוק מירבי!';
-    const longWaitMessage = 'אל דאגה, לא נתקעתי! לפעמים לוקח לי זמן לחשוב ולמצוא התאמות.';
+    const longWaitMessage = ' אל דאגה, לא נתקעתי! לפעמים לוקח לי זמן לחשוב ולמצוא התאמות בשביל שאתם לא תצטרכו.';
 
     return (
       <div style={{ textAlign: 'center' }}>

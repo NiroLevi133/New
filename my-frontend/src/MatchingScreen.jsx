@@ -193,10 +193,10 @@ const GuestCard = ({
             {currentGuest.guest}
         </div>
         
-        {/* פרטים חכמים (צד, קבוצה) - מוצגים בצורה דיסקרטית */}
-        <div className="guest-details-smart">
+        {/* 🔥 המיכל החדש המציג את כל הפרטים הלא-ריקים מה-Backend */}
+        <div className="guest-details-container">
           {Object.entries(guestDetails).map(([key, value]) => (
-            <div key={key} className="smart-detail-item">
+            <div key={key} className="guest-detail-item">
               <strong>{key}:</strong> {value}
             </div>
           ))}

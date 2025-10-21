@@ -221,26 +221,29 @@ input:focus {
   margin: 10px 0;
 }
 
-/* פרטים חכמים (צד, קבוצה) - נקיים */
-.guest-details-smart {
-    display: flex;
-    justify-content: center;
-    gap: 25px;
-    margin: 15px 0 20px 0;
+/* 🔥 שינוי: פרטים נוספים (כל העמודות מהקובץ) */
+.guest-details-container {
+    margin: 15px 0 25px 0;
     padding: 10px 0;
-    border-top: 1px solid #eee;
-    border-bottom: 1px solid #eee;
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    display: grid;
+    /* יציג עד 2-3 עמודות בשורה, גמיש לפי רוחב */
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); 
+    gap: 15px 25px;
+    text-align: right; /* יישור לימין */
 }
 
-.smart-detail-item {
-    font-size: 0.9rem;
-    color: #555;
+.guest-detail-item {
+    font-size: 0.95rem;
+    color: var(--dark-text);
+    line-height: 1.3;
 }
 
-.smart-detail-item strong {
+.guest-detail-item strong {
     font-weight: 700;
     color: var(--primary-teal);
-    margin-right: 3px;
+    margin-left: 5px; /* מרווח קטן אחרי שם השדה */
 }
 
 /* מועמדים - רשימה מינימליסטית */
@@ -395,4 +398,22 @@ input[type="file"] {
         width: 100%;
         justify-content: center;
     }
+}
+/* ============================================================
+   LOADING SPINNER
+   ============================================================ */
+
+.loading-spinner {
+  border: 6px solid var(--border-color); /* צבע הרקע של הגלגל */
+  border-top: 6px solid var(--primary-teal); /* צבע ה"גלגל" המסתובב */
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin: 20px auto; /* מרכוז */
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
