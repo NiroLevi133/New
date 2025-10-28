@@ -1242,7 +1242,7 @@ const ChatunoTech = () => {
           />
       )}
       
-      {/* Resume Session Dialog (אם רלוונטי) */}
+      {/* Resume Session Dialog (אם רלווכנטי) */}
       {showResumeDialog && (
         <ResumeSessionDialog
             savedSession={savedSession}
