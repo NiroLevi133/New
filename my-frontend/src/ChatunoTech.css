@@ -1,0 +1,420 @@
+/* ============================================================
+   ChatunoTech.css - עיצוב מחדש: מינימליסטי ואינטואיטיבי
+   ============================================================ */
+
+:root {
+  /* צבעים מרכזיים - מינימליסטי */
+  --primary-teal: #1f9485; /* ירוק כהה יותר, רגוע */
+  --secondary-color: #f0f0f0;
+  --dark-text: #264653;
+  --light-gray: #f8f9fa;
+  --border-color: #e1e8ed;
+  --success-green: #37c27b; 
+  --danger-red: #dc3545;
+  --warning-yellow: #f4a261;
+  --card-shadow: 0 10px 30px rgba(0,0,0,0.08); 
+  --small-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  --bg-gradient: linear-gradient(135deg, #d3eaf0, #e9f5f0); /* רקע עדין מאוד */
+}
+
+/* ============================================================
+   GLOBAL STYLES & LAYOUT
+   ============================================================ */
+
+.app-container {
+  min-height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--bg-gradient);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  direction: rtl;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.content-card {
+  background: var(--white);
+  border-radius: 20px;
+  box-shadow: var(--card-shadow);
+  padding: 35px;
+  max-width: 650px; /* רוחב נוח לקריאה */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+h2 { 
+    color: var(--dark-text);
+    font-weight: 700;
+    font-size: 1.8rem;
+    margin-top: 0;
+    margin-bottom: 25px; 
+    text-align: center; 
+}
+h3 { 
+    font-size: 1.2rem; 
+    margin-bottom: 10px; 
+    font-weight: 600; 
+    color: var(--dark-text);
+}
+
+input[type="text"], input[type="tel"], input[type="number"], select {
+  width: 100%;
+  padding: 14px 20px; /* פאדינג נוח */
+  margin: 8px 0;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-sizing: border-box;
+  font-size: 1.05rem;
+  background-color: var(--light-gray);
+  color: var(--dark-text);
+  text-align: right; 
+  transition: border-color 0.2s;
+}
+input:focus {
+    border-color: var(--primary-teal);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(31, 148, 133, 0.15);
+}
+
+/* כפתורים - עיצוב חדש */
+.btn {
+  padding: 15px 30px;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  display: inline-block;
+  box-shadow: var(--small-shadow);
+}
+
+.btn-primary {
+  background-color: var(--primary-teal);
+  color: var(--white);
+}
+.btn-primary:hover {
+    background-color: #1a8073;
+}
+.btn-primary:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.btn-secondary {
+  background-color: var(--secondary-color);
+  color: var(--dark-text);
+  border: 1px solid var(--border-color);
+  box-shadow: none;
+}
+.btn-secondary:hover {
+    background-color: #e5e5e5;
+}
+.btn-small {
+    padding: 10px 20px;
+    font-size: 0.95rem;
+}
+
+/* הודעות סטטוס */
+.status-message {
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-align: center;
+  margin-top: 20px;
+  font-size: 1rem;
+}
+
+.status-success { 
+    background-color: rgba(55, 194, 123, 0.1); 
+    color: var(--success-green); 
+    border: 1px solid var(--success-green);
+}
+.status-error { 
+    background-color: rgba(220, 53, 69, 0.1); 
+    color: var(--danger-red); 
+    border: 1px solid var(--danger-red);
+}
+.status-info { 
+    background-color: rgba(244, 162, 97, 0.1);
+    color: var(--warning-yellow);
+    border: 1px solid var(--warning-yellow);
+}
+
+/* ============================================================
+   HEADER & LIMIT (סטטוס)
+   ============================================================ */
+
+.app-header-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.app-header-status h2 {
+    text-align: right;
+    margin: 0;
+    font-size: 1.4rem;
+}
+
+.limit-badge {
+    padding: 8px 15px; 
+    border-radius: 8px;
+    font-size: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    background-color: var(--light-gray);
+    border: 1px solid var(--border-color);
+}
+.limit-badge.pro {
+    background-color: #e6f9f7;
+    border-color: var(--primary-teal);
+    color: var(--primary-teal);
+}
+.limit-badge.urgent {
+    background-color: #ffebeb;
+    border-color: var(--danger-red);
+    color: var(--danger-red);
+}
+.limit-text {
+    font-weight: 600;
+    margin-right: 5px;
+}
+
+/* ============================================================
+   MATCHING SCREEN (אישור אנשי קשר)
+   ============================================================ */
+.matching-layout {
+  display: block; 
+  max-width: 550px; 
+  margin: 0 auto;
+}
+
+/* Guest Card */
+.guest-card-container {
+  padding: 20px;
+  border-radius: 15px;
+  box-shadow: var(--small-shadow);
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+  background-color: var(--white);
+}
+
+.guest-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.guest-name {
+  font-size: 1.7rem; 
+  font-weight: 700;
+  text-align: center;
+  color: var(--dark-text);
+  margin: 10px 0;
+}
+
+/* 🔥 שינוי: פרטים נוספים (כל העמודות מהקובץ) */
+.guest-details-container {
+    margin: 15px 0 25px 0;
+    padding: 10px 0;
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    display: grid;
+    /* יציג עד 2-3 עמודות בשורה, גמיש לפי רוחב */
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); 
+    gap: 15px 25px;
+    text-align: right; /* יישור לימין */
+}
+
+.guest-detail-item {
+    font-size: 0.95rem;
+    color: var(--dark-text);
+    line-height: 1.3;
+}
+
+.guest-detail-item strong {
+    font-weight: 700;
+    color: var(--primary-teal);
+    margin-left: 5px; /* מרווח קטן אחרי שם השדה */
+}
+
+/* מועמדים - רשימה מינימליסטית */
+.candidates-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.candidate-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px; 
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  background-color: var(--light-gray);
+  margin-bottom: 8px;
+}
+.candidate-option:hover {
+  border-color: var(--primary-teal);
+  background-color: #f1fefd;
+}
+
+.candidate-option.selected {
+  background-color: #e6f9f7; 
+  border-color: var(--success-green);
+  box-shadow: 0 0 0 2px rgba(55, 194, 123, 0.2);
+}
+
+.contact-name {
+  font-weight: 600;
+  color: var(--dark-text);
+  margin-bottom: 3px;
+  display: block;
+}
+
+.contact-phone {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.auto-match-badge {
+    background-color: var(--warning-yellow);
+    color: var(--white);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-right: 8px;
+    display: inline-block;
+}
+
+/* התאמה מושלמת */
+.perfect-match-badge {
+    background: linear-gradient(135deg, #ffd700, #ffed4e);
+    color: var(--dark-text);
+    padding: 10px 20px;
+    border-radius: 10px;
+    margin: 10px auto;
+    font-weight: 700;
+    font-size: 1.1rem;
+    width: fit-content;
+}
+
+/* ניווט */
+.navigation-buttons {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  margin-top: 30px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* ============================================================
+   AUTH & LANDING (פחות עומס ויזואלי)
+   ============================================================ */
+
+.landing-benefits-box {
+  background: rgba(31, 148, 133, 0.05); /* רקע עדין */
+  padding: 20px;
+  border-radius: 15px;
+  margin: 20px 0;
+  text-align: right;
+  border: 1px solid rgba(31, 148, 133, 0.1);
+}
+.landing-benefits-box ul {
+    list-style: '✨ ';
+    padding-right: 20px;
+    line-height: 1.8;
+}
+
+/* ============================================================
+   UPLOAD SCREEN (נקי ומרווח)
+   ============================================================ */
+
+.file-upload-section {
+    padding: 15px;
+    border: 1px dashed var(--primary-teal);
+    border-radius: 10px;
+    margin-bottom: 20px;
+    background-color: #f1fefd;
+}
+
+.file-upload-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--dark-text);
+    margin-bottom: 10px;
+}
+.file-upload-title label {
+    margin: 0;
+}
+
+/* שיפוץ ל-input file שאינו ניתן לעיצוב ישירות */
+input[type="file"] {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding: 10px;
+    background-color: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+/* ============================================================
+   MOBILE RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 650px) {
+    .content-card {
+        padding: 20px;
+    }
+    .navigation-buttons {
+        flex-direction: column;
+    }
+    .app-header-status {
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 10px;
+    }
+    .app-header-status h2 {
+        width: 100%;
+    }
+    .limit-badge {
+        width: 100%;
+        justify-content: center;
+    }
+}
+/* ============================================================
+   LOADING SPINNER
+   ============================================================ */
+
+.loading-spinner {
+  border: 6px solid var(--border-color); /* צבע הרקע של הגלגל */
+  border-top: 6px solid var(--primary-teal); /* צבע ה"גלגל" המסתובב */
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+  margin: 20px auto; /* מרכוז */
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
