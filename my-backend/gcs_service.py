@@ -11,7 +11,7 @@ GCS_BUCKET = os.environ.get("GCS_BUCKET")
 _client = None
 
 def get_storage_client():
-    """Get or create storage client"""
+    """Get or create storage client - returns None if fails"""
     global _client
     if _client is None:
         try:
@@ -19,8 +19,14 @@ def get_storage_client():
             _client = storage.Client()
             logging.info("✅ Storage client created")
         except Exception as e:
-            logging.error(f"❌ Failed to create storage client: {e}")
-            raise
+            logging.warning(f"⚠️ Storage client not available: {e}")
+            _client = False  # Mark as failed (not None, so we don't retry)
+            return None
+
+    # If client creation failed before, return None
+    if _client is False:
+        return None
+
     return _client
 
 def save_session_to_gcs(session_data: dict, phone: str) -> str:
@@ -29,9 +35,14 @@ def save_session_to_gcs(session_data: dict, phone: str) -> str:
     """
     try:
         if not GCS_BUCKET:
-            raise ValueError("GCS_BUCKET environment variable not set")
+            logging.warning("⚠️ GCS_BUCKET not set - skipping save")
+            return None
 
         client = get_storage_client()
+        if client is None:
+            logging.warning("⚠️ GCS client not available - skipping save")
+            return None
+
         bucket = client.bucket(GCS_BUCKET)
         blob_name = f"sessions/{phone}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         blob = bucket.blob(blob_name)
@@ -54,9 +65,14 @@ def load_session_from_gcs(blob_name: str) -> dict | None:
     """
     try:
         if not GCS_BUCKET:
-            raise ValueError("GCS_BUCKET environment variable not set")
+            logging.warning("⚠️ GCS_BUCKET not set - skipping load")
+            return None
 
         client = get_storage_client()
+        if client is None:
+            logging.warning("⚠️ GCS client not available - skipping load")
+            return None
+
         bucket = client.bucket(GCS_BUCKET)
         blob = bucket.blob(blob_name)
 
@@ -81,10 +97,14 @@ def save_file_to_gcs(phone: str, file_obj, file_type: str) -> str | None:
     """
     try:
         if not GCS_BUCKET:
-            logging.error("❌ GCS_BUCKET environment variable not set")
-            raise ValueError("GCS_BUCKET environment variable not set")
+            logging.warning("⚠️ GCS_BUCKET not set - skipping file save")
+            return None
 
         client = get_storage_client()
+        if client is None:
+            logging.warning("⚠️ GCS client not available - skipping file save")
+            return None
+
         bucket = client.bucket(GCS_BUCKET)
         
         # 🔥 יצירת תיקיית סשן ייחודית: כוללת תאריך (D) ושעה (H).

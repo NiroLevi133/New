@@ -113,7 +113,19 @@ except Exception as e:
 # ============================================================
 #                    GCS SETUP (for file storage - kept for now)
 # ============================================================
-from gcs_service import save_file_to_gcs
+from gcs_service import save_file_to_gcs, get_storage_client
+
+# Check if GCS is available
+try:
+    gcs_test = get_storage_client()
+    GCS_AVAILABLE = gcs_test is not None
+    if GCS_AVAILABLE:
+        logger.info("✅ GCS (Cloud Storage) client available")
+    else:
+        logger.warning("⚠️ GCS not available - file storage disabled")
+except Exception as e:
+    logger.warning(f"⚠️ GCS not available: {e}")
+    GCS_AVAILABLE = False
 
 # ============================================================
 #                    CONFIGURATION
@@ -291,8 +303,14 @@ async def root():
         "features": {
             "matching": LOGIC_AVAILABLE,
             "database": FIRESTORE_AVAILABLE,
+            "file_storage": GCS_AVAILABLE,
             "open_access": True,
             "no_limits": True
+        },
+        "services": {
+            "firestore": "✅ Available" if FIRESTORE_AVAILABLE else "⚠️ Not available",
+            "gcs": "✅ Available" if GCS_AVAILABLE else "⚠️ Not available",
+            "matching": "✅ Available" if LOGIC_AVAILABLE else "❌ Error"
         }
     }
 
@@ -301,8 +319,11 @@ async def health():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "logic": LOGIC_AVAILABLE,
-        "database": FIRESTORE_AVAILABLE,
+        "services": {
+            "logic": LOGIC_AVAILABLE,
+            "database": FIRESTORE_AVAILABLE,
+            "file_storage": GCS_AVAILABLE,
+        }
     }
 
 
@@ -536,10 +557,15 @@ async def save_files(
         guests_path = save_file_to_gcs(phone, guests_file, "guests")
         contacts_path = save_file_to_gcs(phone, contacts_file, "contacts")
 
+        # If both are None, GCS is not available
+        if guests_path is None and contacts_path is None:
+            logger.info("⚠️ GCS not available - files not saved")
+            return {"status": "skipped", "reason": "gcs_not_available"}
+
         # לוג
         log_user_activity(phone, "upload_files", {
-            "guests_path": guests_path,
-            "contacts_path": contacts_path
+            "guests_path": guests_path or "not_saved",
+            "contacts_path": contacts_path or "not_saved"
         })
 
         return {

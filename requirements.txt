@@ -13,3 +13,4 @@ google-cloud-firestore==2.14.0
 google-auth==2.23.0
 gspread==5.11.0
 orjson==3.10.7
+packaging
