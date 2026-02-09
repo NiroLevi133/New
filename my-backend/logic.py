@@ -53,21 +53,19 @@ from rapidfuzz import fuzz, distance
 
 
 import io, os, json, logging, traceback
-from google.oauth2 import service_account
-
 import pickle
 import base64
 from datetime import datetime
 
-
- 
 # Google Sheets via ADC (Cloud Run Service Account)
 try:
+    from google.oauth2 import service_account
     import google.auth
     import gspread
     GOOGLE_AVAILABLE = True
 except ImportError:
     GOOGLE_AVAILABLE = False
+    service_account = None
     logging.warning("Google auth not available - using local files only")
     
 DRIVE_PARENT_FOLDER_ID = os.environ.get('DRIVE_PARENT_FOLDER_ID', None)

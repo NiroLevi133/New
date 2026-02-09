@@ -22,6 +22,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 from io import BytesIO
+import tempfile
 
 from pydantic import BaseModel
 
@@ -35,6 +36,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.info("🚀 Starting Guest Matcher API v6.0 - OPEN ACCESS...")
+
+# ============================================================
+#  🔧 Setup Google Credentials from JSON string if provided
+# ============================================================
+if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON'):
+    try:
+        creds_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+        # Create a temporary file for the credentials
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+            temp_file.write(creds_json)
+            temp_file.flush()
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_file.name
+            logger.info(f"✅ Google credentials loaded from GOOGLE_APPLICATION_CREDENTIALS_JSON")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to setup Google credentials: {e}")
 
 # ============================================================
 #                    IMPORTS

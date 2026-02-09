@@ -19,5 +19,5 @@ WORKDIR /app/my-backend
 # פותחים פורט 8080 (הנדרש על ידי Cloud Run)
 EXPOSE 8080
 
-# מפעילים את השרת - משתמשים ב-PORT environment variable
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
+# מפעילים את השרת
+CMD ["python", "main.py"]
