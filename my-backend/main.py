@@ -91,41 +91,41 @@ try:
 except ImportError as e:
     logger.error(f"❌ Import failed: {e}")
     LOGIC_AVAILABLE = False
-    sys.exit(1)
 except Exception as e:
     logger.error(f"💥 Critical error: {e}")
     logger.error(traceback.format_exc())
-    sys.exit(1)
+    LOGIC_AVAILABLE = False
 
 # ============================================================
-#                    FIRESTORE SETUP
+#                    FIRESTORE SETUP (disabled for testing)
 # ============================================================
-try:
-    from google.cloud import firestore
-    db = firestore.Client()
-    FIRESTORE_AVAILABLE = True
-    logger.info("✅ Firestore client created")
-except Exception as e:
-    logger.warning(f"⚠️ Firestore not available: {e}")
-    FIRESTORE_AVAILABLE = False
-    db = None
+FIRESTORE_AVAILABLE = False
+db = None
+# try:
+#     from google.cloud import firestore
+#     db = firestore.Client()
+#     FIRESTORE_AVAILABLE = True
+#     logger.info("✅ Firestore client created")
+# except Exception as e:
+#     logger.warning(f"⚠️ Firestore not available: {e}")
+#     FIRESTORE_AVAILABLE = False
+#     db = None
 
 # ============================================================
-#                    GCS SETUP (for file storage - kept for now)
+#                    GCS SETUP (disabled for testing)
 # ============================================================
-from gcs_service import save_file_to_gcs, get_storage_client
-
-# Check if GCS is available
-try:
-    gcs_test = get_storage_client()
-    GCS_AVAILABLE = gcs_test is not None
-    if GCS_AVAILABLE:
-        logger.info("✅ GCS (Cloud Storage) client available")
-    else:
-        logger.warning("⚠️ GCS not available - file storage disabled")
-except Exception as e:
-    logger.warning(f"⚠️ GCS not available: {e}")
-    GCS_AVAILABLE = False
+GCS_AVAILABLE = False
+def save_file_to_gcs(*args, **kwargs):
+    return None
+def get_storage_client():
+    return None
+# try:
+#     from gcs_service import save_file_to_gcs, get_storage_client
+#     gcs_test = get_storage_client()
+#     GCS_AVAILABLE = gcs_test is not None
+# except Exception as e:
+#     logger.warning(f"⚠️ GCS not available: {e}")
+#     GCS_AVAILABLE = False
 
 # ============================================================
 #                    CONFIGURATION
