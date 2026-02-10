@@ -1,7 +1,40 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './ChatunoTech.css';
 import { AuthScreen, LandingPage, ContactsGuideModal } from './AuthScreen';
-import { UploadScreen, MatchingSidebar, GuestCard, SuccessScreen } from './MatchingScreen';
+import { UploadScreen, GuestCard, SuccessScreen } from './MatchingScreen';
+
+const WedlinkHeader = () => (
+  <div className="wedlink-header">
+    <span className="wedlink-heart">&#x2764;</span>
+    <span className="wedlink-title">Wedlink</span>
+  </div>
+);
+
+const StepIndicator = ({ currentStep }) => {
+  const steps = [
+    { number: 1, label: 'העלאת קבצים' },
+    { number: 2, label: 'אישור התאמות' },
+    { number: 3, label: 'הורדה' },
+  ];
+
+  return (
+    <div className="step-indicator">
+      {steps.map((step, idx) => (
+        <React.Fragment key={step.number}>
+          <div className={`step-item ${currentStep >= step.number ? 'active' : ''} ${currentStep > step.number ? 'completed' : ''}`}>
+            <div className="step-circle">
+              {currentStep > step.number ? '\u2713' : step.number}
+            </div>
+            <span className="step-label">{step.label}</span>
+          </div>
+          {idx < steps.length - 1 && (
+            <div className={`step-line ${currentStep > step.number ? 'active' : ''}`} />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
 
 const ChatunoTech = () => {
   // Constants
@@ -550,27 +583,18 @@ const ChatunoTech = () => {
     }, []);
 
     return (
-      <div style={{ textAlign: 'center' }}>
-        <h2>⏳ מבצע מיזוג...</h2>
+      <div className="loading-screen">
+        <h2 className="screen-heading">מבצע מיזוג...</h2>
         <div className="loading-spinner"></div>
-        <p>מנתח קבצים...</p>
-        <div style={{
-          background: 'rgba(42, 157, 143, 0.1)',
-          padding: '15px',
-          borderRadius: '10px',
-          margin: '20px 0',
-          minHeight: '80px',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center'
-        }}>
+        <p className="loading-status">מנתח קבצים...</p>
+        <div className="loading-tip-box">
           {showWaitMessage ? (
-            <p style={{ fontWeight: 'bold', color: '#2a9d8f', margin: 0 }}>
+            <p className="loading-tip-bold">
               אל דאגה, לא נתקעתי! לפעמים לוקח לי זמן לחשוב ולמצוא התאמות בשביל שאתם לא תצטרכו.
             </p>
           ) : (
-            <p style={{ margin: 0 }}>
-              💡 <strong>טיפ:</strong> מומלץ לאחד קבצי אנשי קשר של החתן, הכלה והמשפחה לקובץ אחד לדיוק מירבי!
+            <p className="loading-tip">
+              <strong>טיפ:</strong> מומלץ לאחד קבצי אנשי קשר של החתן, הכלה והמשפחה לקובץ אחד לדיוק מירבי!
             </p>
           )}
         </div>
@@ -583,29 +607,18 @@ const ChatunoTech = () => {
     if (!savedSession) return null;
 
     return (
-      <div style={{
-        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-        background: 'rgba(0,0,0,0.7)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 9999, padding: '20px'
-      }}>
-        <div style={{
-          background: 'white', borderRadius: '20px', padding: '30px',
-          maxWidth: '500px', textAlign: 'center'
-        }}>
-          <h2>🔄 נמצאה עבודה שמורה!</h2>
-          <div style={{
-            background: '#f1f8ff', padding: '15px', borderRadius: '10px',
-            margin: '20px 0', textAlign: 'right'
-          }}>
-            <div>📅 תאריך: {new Date(savedSession.timestamp).toLocaleDateString('he-IL')}</div>
-            <div>📊 התקדמות: {savedSession.current_progress}</div>
-            <div>✅ התאמות שנעשו: {Object.keys(savedSession.selected_contacts || {}).length}</div>
+      <div className="modal-overlay">
+        <div className="modal-content">
+          <h2>נמצאה עבודה שמורה!</h2>
+          <div className="modal-info-box">
+            <div>תאריך: {new Date(savedSession.timestamp).toLocaleDateString('he-IL')}</div>
+            <div>התקדמות: {savedSession.current_progress}</div>
+            <div>התאמות שנעשו: {Object.keys(savedSession.selected_contacts || {}).length}</div>
           </div>
-          <p style={{ fontSize: '1.1rem', marginBottom: '25px' }}>האם להמשיך מאיפה שהפסקת?</p>
-          <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
-            <button className="btn btn-primary" onClick={onResume}>✅ המשך עבודה</button>
-            <button className="btn btn-secondary" onClick={onNewSession}>🆕 התחל מחדש</button>
+          <p className="screen-subtitle">האם להמשיך מאיפה שהפסקת?</p>
+          <div className="modal-actions">
+            <button className="btn btn-primary" onClick={onResume}>המשך עבודה</button>
+            <button className="btn btn-secondary" onClick={onNewSession}>התחל מחדש</button>
           </div>
         </div>
       </div>
@@ -615,16 +628,30 @@ const ChatunoTech = () => {
   // ============================================================
   // RENDER
   // ============================================================
+  const getStepNumber = () => {
+    switch (currentScreen) {
+      case 'uploadScreen': return 1;
+      case 'loadingScreen': return 1;
+      case 'matchingScreen': return 2;
+      case 'successScreen': return 3;
+      default: return 0;
+    }
+  };
+
+  const stepNumber = getStepNumber();
+
   return (
     <div className="app-container">
       <div className="content-card">
+        <WedlinkHeader />
+        {stepNumber > 0 && <StepIndicator currentStep={stepNumber} />}
 
         {/* Landing Page */}
         {currentScreen === 'landingPage' && (
           <LandingPage onStart={() => setCurrentScreen('authScreen')} />
         )}
 
-        {/* Auth Screen - SIMPLIFIED */}
+        {/* Auth Screen */}
         {currentScreen === 'authScreen' && (
           <AuthScreen
             phoneValue={phoneValue}
@@ -657,73 +684,55 @@ const ChatunoTech = () => {
 
         {/* Matching Screen */}
         {currentScreen === 'matchingScreen' && (
-          <div className="matching-layout">
-            <MatchingSidebar
-              currentUser={currentUser}
-              exportResults={exportResults}
-              isLoading={isLoading}
-              currentGuestIndex={currentGuestIndex}
-              filters={filters}
-              setFilters={setFilters}
-              getUniqueValues={getUniqueValues}
-            />
+          <div className="matching-screen">
+            {(() => {
+              const filteredResults = getFilteredResults();
+              const currentGuest = filteredResults[currentGuestIndex] || matchingResults[currentGuestIndex];
 
-            <div className="main-content">
-              {(() => {
-                const filteredResults = getFilteredResults();
-                const currentGuest = filteredResults[currentGuestIndex] || matchingResults[currentGuestIndex];
+              if (!currentGuest) return <div className="screen-subtitle">אין מוזמנים</div>;
 
-                if (!currentGuest) return <div>אין מוזמנים</div>;
+              const isSelected = !!selectedContacts[currentGuest.guest];
 
-                const isSelected = !!selectedContacts[currentGuest.guest];
+              return (
+                <>
+                  <GuestCard
+                    currentGuest={currentGuest}
+                    currentGuestIndex={currentGuestIndex}
+                    totalGuests={filteredResults.length}
+                    selectedContacts={selectedContacts}
+                    selectCandidate={selectCandidate}
+                    manualPhone={manualPhone}
+                    setManualPhone={setManualPhone}
+                    addManualContact={addManualContact}
+                    searchInContacts={searchInContacts}
+                    handleSearchInput={handleSearchInput}
+                    showSuggestions={showSuggestions}
+                    searchSuggestions={searchSuggestions}
+                    selectFromSuggestion={selectFromSuggestion}
+                    setSearchInContacts={setSearchInContacts}
+                    setShowSuggestions={setShowSuggestions}
+                  />
 
-                return (
-                  <>
-                    <GuestCard
-                      currentGuest={currentGuest}
-                      currentGuestIndex={currentGuestIndex}
-                      totalGuests={filteredResults.length}
-                      selectedContacts={selectedContacts}
-                      selectCandidate={selectCandidate}
-                      manualPhone={manualPhone}
-                      setManualPhone={setManualPhone}
-                      addManualContact={addManualContact}
-                      searchInContacts={searchInContacts}
-                      handleSearchInput={handleSearchInput}
-                      showSuggestions={showSuggestions}
-                      searchSuggestions={searchSuggestions}
-                      selectFromSuggestion={selectFromSuggestion}
-                      setSearchInContacts={setSearchInContacts}
-                      setShowSuggestions={setShowSuggestions}
-                    />
+                  <div className="nav-buttons">
+                    <button
+                      className="btn btn-outline"
+                      onClick={previousGuest}
+                      disabled={currentGuestIndex === 0 || isLoading}
+                    >
+                      הקודם
+                    </button>
 
-                    <div style={{
-                      marginTop: '30px',
-                      display: 'flex',
-                      gap: '15px',
-                      justifyContent: 'center',
-                      flexWrap: 'wrap'
-                    }}>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={previousGuest}
-                        disabled={currentGuestIndex === 0 || isLoading}
-                      >
-                        ⬅️ הקודם
-                      </button>
-
-                      <button
-                        className="btn btn-primary"
-                        onClick={nextGuest}
-                        disabled={!isSelected || isLoading}
-                      >
-                        {currentGuestIndex === filteredResults.length - 1 ? '🎉 סיים' : 'הבא ➡️'}
-                      </button>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
+                    <button
+                      className="btn btn-primary"
+                      onClick={nextGuest}
+                      disabled={!isSelected || isLoading}
+                    >
+                      {currentGuestIndex === filteredResults.length - 1 ? 'סיים' : 'הבא'}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -762,44 +771,33 @@ const ChatunoTech = () => {
         )}
 
         {showPhoneColumnDialog && phoneColumnInfo && (
-          <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.7)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 9999, padding: '20px'
-          }}>
-            <div style={{
-              background: 'white', borderRadius: '20px', padding: '30px',
-              maxWidth: '500px', textAlign: 'center'
-            }}>
-              <h3 style={{ marginBottom: '20px' }}>📞 מצאנו עמודת טלפון בקובץ!</h3>
-              <div style={{
-                background: '#f1f8ff', padding: '15px', borderRadius: '10px',
-                marginBottom: '20px', textAlign: 'right'
-              }}>
-                <div>📊 <strong>סה״כ מוזמנים:</strong> {phoneColumnInfo.total_rows}</div>
-                <div>✅ <strong>עם מספר:</strong> {phoneColumnInfo.filled_count}</div>
-                <div>❌ <strong>בלי מספר:</strong> {phoneColumnInfo.empty_count}</div>
+          <div className="modal-overlay">
+            <div className="modal-content">
+              <h3>מצאנו עמודת טלפון בקובץ!</h3>
+              <div className="modal-info-box">
+                <div><strong>סה״כ מוזמנים:</strong> {phoneColumnInfo.total_rows}</div>
+                <div><strong>עם מספר:</strong> {phoneColumnInfo.filled_count}</div>
+                <div><strong>בלי מספר:</strong> {phoneColumnInfo.empty_count}</div>
               </div>
-              <p style={{ fontSize: '1.1rem', marginBottom: '25px' }}>
+              <p className="screen-subtitle">
                 האם לדלג על מוזמנים שיש להם כבר מספר טלפון?
               </p>
-              <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+              <div className="modal-actions">
                 <button
                   className="btn btn-primary"
                   onClick={() => {
                     setSkipFilledPhones(true);
                     setShowPhoneColumnDialog(false);
-                    showMessage('✅ נדלג על מוזמנים עם מספר קיים', 'success');
+                    showMessage('נדלג על מוזמנים עם מספר קיים', 'success');
                   }}
                 >
-                  ✅ כן, דלג
+                  כן, דלג
                 </button>
                 <button
                   className="btn btn-secondary"
                   onClick={() => { setSkipFilledPhones(false); setShowPhoneColumnDialog(false); }}
                 >
-                  📝 לא, עדכן את כולם
+                  לא, עדכן את כולם
                 </button>
               </div>
             </div>

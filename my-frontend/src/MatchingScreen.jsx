@@ -1,7 +1,7 @@
 import React from 'react';
 
 // ============================================================
-// 1. UploadScreen - simplified (no limits display)
+// 1. UploadScreen - two-column card layout
 // ============================================================
 const UploadScreen = ({
   currentUser,
@@ -19,104 +19,114 @@ const UploadScreen = ({
   const isMobileContacts = uploadedFiles.contacts === 'mobile_contacts';
 
   return (
-    <div>
-      <div className="app-header-status">
-        <h2>📁 העלאת הקבצים שלך</h2>
-      </div>
-
-      <h3 style={{ textAlign: 'center', color: 'var(--primary-teal)', marginBottom: '15px' }}>
-        ברוכה הבאה {currentUser.fullName}!
-      </h3>
-
-      <p style={{ textAlign: 'center', color: '#555', marginBottom: '25px' }}>
-        שלב 1 מתוך 2: העלה את שני הקבצים כדי להתחיל במיזוג.
+    <div className="upload-screen">
+      <h2 className="screen-heading">
+        שלום {currentUser.fullName}!
+      </h2>
+      <p className="screen-subtitle">
+        העלה את שני הקבצים כדי להתחיל בהתאמה
       </p>
 
-      {/* העלאת אנשי קשר */}
-      <div className="file-upload-section">
-        <div className="file-upload-title">
-          <label>📞 קובץ אנשי קשר</label>
+      <div className="upload-cards-row">
+        {/* Guest List Card */}
+        <div className={`upload-card ${uploadedFiles.guests ? 'upload-card--done' : ''}`}>
+          <div className="upload-card-icon">&#x1F3A9;</div>
+          <h3 className="upload-card-title">רשימת מוזמנים</h3>
+          <p className="upload-card-subtitle">גיליון האקסל של המוזמנים שלך</p>
+          <p className="upload-card-formats">.xlsx, .xls, או .csv</p>
+
+          <label className="file-drop-zone">
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={(e) => handleFileUpload(e, 'guests')}
+              disabled={isLoading}
+            />
+            <span className="file-drop-text">
+              {uploadedFiles.guests ? uploadedFiles.guests.name : 'בחר קובץ'}
+            </span>
+          </label>
+
+          {uploadedFiles.guests && (
+            <div className="upload-card-success">נטען בהצלחה</div>
+          )}
+        </div>
+
+        {/* Contacts Card */}
+        <div className={`upload-card ${(isContactsFile || isMobileContacts) ? 'upload-card--done' : ''}`}>
+          <div className="upload-card-icon">&#x1F4CB;</div>
+          <h3 className="upload-card-title">אנשי קשר מ-WhatsApp</h3>
+          <p className="upload-card-subtitle">יוצא דרך תוסף JONI</p>
+          <p className="upload-card-formats">.xlsx, .xls, או .csv</p>
+
+          {supportsMobileContacts && (
+            <button
+              className="btn btn-secondary btn-small"
+              onClick={requestMobileContacts}
+              disabled={isLoading || isContactsFile || isMobileContacts}
+              style={{ width: '100%', marginBottom: '8px' }}
+            >
+              {isMobileContacts ? 'נטענו אנשי קשר מהטלפון' : 'גישה לאנשי קשר בטלפון'}
+            </button>
+          )}
+
+          {supportsMobileContacts && !isMobileContacts && (
+            <div className="upload-card-divider">או</div>
+          )}
+
+          {!isMobileContacts && (
+            <label className="file-drop-zone">
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                onChange={(e) => handleFileUpload(e, 'contacts')}
+                disabled={isLoading || isMobileContacts}
+              />
+              <span className="file-drop-text">
+                {isContactsFile ? uploadedFiles.contacts.name : 'בחר קובץ'}
+              </span>
+            </label>
+          )}
+
+          {(isContactsFile || isMobileContacts) && (
+            <div className="upload-card-success">
+              {isMobileContacts ? 'אנשי קשר מהטלפון נטענו' : 'נטען בהצלחה'}
+            </div>
+          )}
+
           <button
-            className="btn btn-secondary btn-small"
+            className="btn-link"
             onClick={() => setShowContactsGuide(true)}
             type="button"
           >
-            📋 איך להוציא אנשי קשר?
+            איך להוציא אנשי קשר?
           </button>
         </div>
-
-        {supportsMobileContacts && (
-          <button
-            className="btn btn-secondary btn-small"
-            onClick={requestMobileContacts}
-            disabled={isLoading || isContactsFile || isMobileContacts}
-            style={{ width: '100%', marginBottom: '10px' }}
-          >
-            {isMobileContacts ? '✅ נטענו אנשי קשר מהטלפון' : '📱 גישה לאנשי קשר בטלפון'}
-          </button>
-        )}
-
-        {supportsMobileContacts && (
-          <div style={{ textAlign: 'center', margin: '5px 0', color: '#888', fontSize: '0.9rem' }}>
-            {isMobileContacts ? 'או' : 'או העלה קובץ'}
-          </div>
-        )}
-
-        <input
-          type="file"
-          accept=".csv,.xlsx,.xls"
-          onChange={(e) => handleFileUpload(e, 'contacts')}
-          disabled={isLoading || isMobileContacts}
-        />
-        {(isContactsFile || isMobileContacts) && (
-          <div className="status-message status-success" style={{ marginTop: '10px' }}>
-            ✅ {isMobileContacts ? 'אנשי קשר מהטלפון נטענו' : 'קובץ אנשי קשר נטען'}
-          </div>
-        )}
-      </div>
-
-      {/* העלאת מוזמנים */}
-      <div className="file-upload-section">
-        <div className="file-upload-title">
-          <label>👰 קובץ מוזמנים</label>
-        </div>
-
-        <input
-          type="file"
-          accept=".csv,.xlsx,.xls"
-          onChange={(e) => handleFileUpload(e, 'guests')}
-          disabled={isLoading}
-        />
-        {uploadedFiles.guests && (
-          <div className="status-message status-success" style={{ marginTop: '10px' }}>
-            ✅ קובץ מוזמנים נטען
-          </div>
-        )}
       </div>
 
       <button
-        className="btn btn-primary"
+        className="btn btn-primary btn-cta"
         onClick={startMerge}
         disabled={!uploadedFiles.guests || !uploadedFiles.contacts || isLoading}
-        style={{ width: '100%', fontSize: '1.2rem', padding: '18px 40px', marginTop: '20px' }}
       >
-        {isLoading ? '⏳ טוען...' : '🚀 התחל מיזוג והתאמה'}
+        <span>&#x2764;</span>
+        {isLoading ? 'טוען...' : 'מצא התאמות'}
       </button>
 
-      <div style={{ marginTop: '25px', textAlign: 'center', borderTop: '1px solid #eee', paddingTop: '20px' }}>
-        <p style={{ fontWeight: '600' }}>💡 צריך עזרה? הורד קבצי דוגמה:</p>
-        <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', flexWrap: 'wrap' }}>
+      <div className="upload-templates">
+        <p className="upload-templates-label">צריך עזרה? הורד קבצי דוגמה:</p>
+        <div className="upload-templates-buttons">
           <button
             className="btn btn-secondary btn-small"
             onClick={() => window.open(`${API_BASE_URL}/download-guests-template`, '_blank')}
           >
-            📥 דוגמה - מוזמנים
+            דוגמה - מוזמנים
           </button>
           <button
             className="btn btn-secondary btn-small"
             onClick={() => window.open(`${API_BASE_URL}/download-contacts-template`, '_blank')}
           >
-            📥 דוגמה - אנשי קשר
+            דוגמה - אנשי קשר
           </button>
         </div>
       </div>
@@ -125,7 +135,7 @@ const UploadScreen = ({
 };
 
 // ============================================================
-// 2. GuestCard - unchanged
+// 2. GuestCard
 // ============================================================
 const GuestCard = ({
   currentGuest,
@@ -151,27 +161,29 @@ const GuestCard = ({
       <div className="guest-card-container">
         <div className="guest-header">
           <div className="guest-progress">
-            מוזמן: {currentGuestIndex + 1} / {totalGuests}
+            {currentGuestIndex + 1} / {totalGuests}
           </div>
         </div>
 
         <div className="guest-name">
-          {currentGuest.best_score === 100 && '👑 '}
+          {currentGuest.best_score === 100 && '\u{1F451} '}
           {currentGuest.guest}
         </div>
 
-        <div className="guest-details-container">
-          {Object.entries(guestDetails).map(([key, value]) => (
-            <div key={key} className="guest-detail-item">
-              <strong>{key}:</strong> {value}
-            </div>
-          ))}
-        </div>
+        {Object.keys(guestDetails).length > 0 && (
+          <div className="guest-details-container">
+            {Object.entries(guestDetails).map(([key, value]) => (
+              <div key={key} className="guest-detail-item">
+                <strong>{key}:</strong> {value}
+              </div>
+            ))}
+          </div>
+        )}
 
-        <h3 style={{ textAlign: 'center', marginBottom: '15px' }}>
+        <h3 style={{ textAlign: 'center', marginBottom: '15px', fontFamily: 'var(--font-heading)' }}>
           {currentGuest.best_score >= 93 && currentGuest.best_score < 100
-            ? '✅ המלצת המערכת (93%+)'
-            : '📋 בחר איש קשר מתאים:'}
+            ? 'המלצת המערכת (93%+)'
+            : 'בחר איש קשר מתאים:'}
         </h3>
 
         <div className="candidates-list">
@@ -199,7 +211,7 @@ const GuestCard = ({
                 </div>
                 <div style={{
                   fontSize: '1.2rem', fontWeight: 'bold',
-                  color: isAutoSelected ? 'var(--warning-yellow)' : '#666'
+                  color: isAutoSelected ? 'var(--color-warning)' : 'var(--color-text-light)'
                 }}>
                   {candidate.score}%
                 </div>
@@ -211,35 +223,28 @@ const GuestCard = ({
         {/* Not found option */}
         <div
           className={`candidate-option ${selectedCandidate?.isNotFound ? 'selected' : ''}`}
-          onClick={() => selectCandidate({ isNotFound: true, name: '🚫 לא נמצא', phone: '', score: 0 })}
+          onClick={() => selectCandidate({ isNotFound: true, name: 'לא נמצא', phone: '', score: 0 })}
           style={{
             marginTop: '15px',
-            background: selectedCandidate?.isNotFound ? '#ffebeb' : '#f8f9fa',
-            borderColor: selectedCandidate?.isNotFound ? 'var(--danger-red)' : '#ddd',
+            background: selectedCandidate?.isNotFound ? 'rgba(217, 79, 87, 0.06)' : undefined,
+            borderColor: selectedCandidate?.isNotFound ? 'var(--color-error)' : undefined,
           }}
         >
           <div className="candidate-info">
-            <div className="contact-name">🚫 המוזמן לא נמצא באנשי הקשר שלי</div>
+            <div className="contact-name">המוזמן לא נמצא באנשי הקשר שלי</div>
             <div className="contact-phone">סמן אם ברצונך להשאיר את המספר ריק</div>
           </div>
         </div>
       </div>
 
       {/* Manual search/add */}
-      <div style={{
-        padding: '15px',
-        background: 'var(--light-gray)',
-        borderRadius: '10px',
-        marginBottom: '20px'
-      }}>
-        <h3 style={{ marginTop: 0, marginBottom: '15px', fontSize: '1.1rem', textAlign: 'center' }}>
-          או חפש / הוסף מספר באופן ידני:
-        </h3>
+      <div className="manual-search-box">
+        <h3>או חפש / הוסף מספר באופן ידני:</h3>
 
         <div style={{ position: 'relative' }}>
           <input
             type="text"
-            placeholder="🔍 חפש שם או הזן מספר טלפון..."
+            placeholder="חפש שם או הזן מספר טלפון..."
             value={searchInContacts}
             onChange={(e) => {
               handleSearchInput(e.target.value);
@@ -248,22 +253,15 @@ const GuestCard = ({
           />
 
           {showSuggestions && searchSuggestions.length > 0 && (
-            <div style={{
-              position: 'absolute', top: '100%', left: 0, right: 0,
-              background: 'white', border: '1px solid var(--primary-teal)',
-              borderRadius: '10px', marginTop: '5px', zIndex: 1000,
-              maxHeight: '200px', overflowY: 'auto',
-              boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
-            }}>
+            <div className="search-suggestions">
               {searchSuggestions.map((contact, idx) => (
                 <div
                   key={idx}
                   onClick={() => selectFromSuggestion(contact)}
-                  className="candidate-option"
-                  style={{ padding: '10px 15px', border: 'none', borderRadius: 0, backgroundColor: 'white' }}
+                  className="search-suggestion-item"
                 >
                   <div style={{ fontWeight: '600' }}>{contact.name}</div>
-                  <div style={{ fontSize: '0.85rem', color: '#666' }}>{contact.phone}</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--color-text-light)' }}>{contact.phone}</div>
                 </div>
               ))}
             </div>
@@ -276,7 +274,7 @@ const GuestCard = ({
             onClick={addManualContact}
             style={{ width: '100%', marginTop: '10px' }}
           >
-            ➕ הוסף מספר ידני: {manualPhone}
+            הוסף מספר ידני: {manualPhone}
           </button>
         )}
       </div>
@@ -285,7 +283,7 @@ const GuestCard = ({
 };
 
 // ============================================================
-// 3. SuccessScreen - unchanged
+// 3. SuccessScreen
 // ============================================================
 const SuccessScreen = ({
   currentGuestIndex,
@@ -296,45 +294,44 @@ const SuccessScreen = ({
   onRestart
 }) => {
   return (
-    <div style={{ textAlign: 'center' }}>
-      <h2>🎉 משימת האימות הושלמה!</h2>
-      <div style={{ fontSize: '3rem', margin: '20px 0' }}>✨</div>
-      <p>עיבדת בהצלחה {currentGuestIndex + 1} מוזמנים!</p>
+    <div className="success-screen">
+      <div className="success-icon">&#x2728;</div>
+      <h2 className="screen-heading">משימת האימות הושלמה!</h2>
+      <p className="screen-subtitle">עיבדת בהצלחה {currentGuestIndex + 1} מוזמנים!</p>
 
-      {perfectMatchesCount > 0 && (
-        <div className="perfect-match-badge" style={{ margin: '10px auto' }}>
-          👑 {perfectMatchesCount} התאמות מושלמות (100%)
+      {(perfectMatchesCount > 0 || autoSelectedCount > 0) && (
+        <div className="success-stats">
+          {perfectMatchesCount > 0 && (
+            <div className="success-stat-item">
+              <span className="success-stat-number">{perfectMatchesCount}</span>
+              <span className="success-stat-label">התאמות מושלמות</span>
+            </div>
+          )}
+          {autoSelectedCount > 0 && (
+            <div className="success-stat-item">
+              <span className="success-stat-number">{autoSelectedCount}</span>
+              <span className="success-stat-label">התאמות אוטומטיות</span>
+            </div>
+          )}
         </div>
       )}
 
-      {autoSelectedCount > 0 && (
-        <div style={{ fontSize: '1.1rem', color: '#2a9d8f', fontWeight: 'bold', margin: '10px 0' }}>
-          ✨ {autoSelectedCount} התאמות אוטומטיות שאושרו
-        </div>
-      )}
-
-      <div style={{
-        background: 'rgba(42, 157, 143, 0.1)',
-        padding: '20px',
-        borderRadius: '15px',
-        margin: '30px 0'
-      }}>
-        <h3>📥 מה עכשיו?</h3>
+      <div className="success-download-box">
+        <h3>מה עכשיו?</h3>
         <p>הורד את קובץ התוצאות המעודכן, הכולל את כל המספרים שאומתו.</p>
       </div>
 
       <button
-        className="btn btn-primary"
+        className="btn btn-primary btn-cta"
         onClick={exportResults}
         disabled={isLoading}
-        style={{ fontSize: '1.2rem', padding: '20px 40px' }}
       >
-        {isLoading ? '⏳ מכין קובץ...' : '📥 הורד את התוצאות'}
+        {isLoading ? 'מכין קובץ...' : 'הורד את התוצאות'}
       </button>
 
-      <div style={{ marginTop: '20px' }}>
-        <button className="btn btn-secondary" onClick={onRestart}>
-          🔄 התחל מחדש (העלאת קובץ נוסף)
+      <div style={{ marginTop: '16px' }}>
+        <button className="btn btn-ghost" onClick={onRestart}>
+          התחל מחדש
         </button>
       </div>
     </div>
@@ -342,7 +339,7 @@ const SuccessScreen = ({
 };
 
 // ============================================================
-// 4. MatchingSidebar - empty (kept for compatibility)
+// 4. MatchingSidebar - removed (kept for compatibility)
 // ============================================================
 const MatchingSidebar = () => null;
 
